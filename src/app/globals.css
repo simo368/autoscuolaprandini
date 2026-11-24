@@ -463,6 +463,16 @@ a:focus-visible {
   background: var(--sage);
 }
 
+.stop-hold-badge {
+  margin-left: auto;
+  padding: 2px 7px;
+  border: 1px solid var(--golden-sand);
+  background: rgba(215, 173, 120, 0.16);
+  color: var(--slate);
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+}
+
 .intro-overlay__title {
   margin: 20px 0 0;
   font-family: var(--font-heading), sans-serif;

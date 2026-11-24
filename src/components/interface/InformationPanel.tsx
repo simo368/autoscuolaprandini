@@ -16,6 +16,7 @@ import { ArrowDiagonal, ArrowDown, CloseIcon } from "@/components/interface/Icon
 interface InformationPanelProps {
   activeChapter: JourneyChapter;
   atStop: boolean;
+  holdSeconds: number;
   selectedCategory: LicenceCategoryId;
   isMobile: boolean;
   onSelectCategory: (id: LicenceCategoryId) => void;
@@ -26,6 +27,7 @@ interface InformationPanelProps {
 export default function InformationPanel({
   activeChapter,
   atStop,
+  holdSeconds,
   selectedCategory,
   isMobile,
   onSelectCategory,
@@ -136,6 +138,9 @@ export default function InformationPanel({
               <div className="editorial-panel__kicker">
                 <span className="hairline-accent" />
                 <span>STOP 01 · LE PATENTI</span>
+                {holdSeconds > 0 && (
+                  <span className="stop-hold-badge">SOSTA · {holdSeconds}S</span>
+                )}
               </div>
 
               <h2 id="stop-patenti-title" className="editorial-panel__title">
@@ -230,6 +235,9 @@ export default function InformationPanel({
               <div className="editorial-panel__kicker">
                 <span className="hairline-accent" />
                 <span>{rinnovoService.kicker}</span>
+                {holdSeconds > 0 && (
+                  <span className="stop-hold-badge">SOSTA · {holdSeconds}S</span>
+                )}
               </div>
 
               <h2 id="stop-rinnovo-title" className="editorial-panel__title">
@@ -283,6 +291,9 @@ export default function InformationPanel({
               <div className="editorial-panel__kicker">
                 <span className="hairline-accent" />
                 <span>{recuperoPuntiService.kicker}</span>
+                {holdSeconds > 0 && (
+                  <span className="stop-hold-badge">SOSTA · {holdSeconds}S</span>
+                )}
               </div>
 
               <h2 id="stop-punti-title" className="editorial-panel__title">

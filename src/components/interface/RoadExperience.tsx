@@ -29,6 +29,7 @@ export default function RoadExperience() {
     scrollYProgress,
     activeChapter,
     atStop,
+    holdSeconds,
     trackProgressRef,
     jumpToStop,
   } = useJourneyProgress();
@@ -101,6 +102,7 @@ export default function RoadExperience() {
           <InformationPanel
             activeChapter={activeChapter}
             atStop={atStop}
+            holdSeconds={holdSeconds}
             selectedCategory={selectedCategory}
             isMobile={isMobile}
             onSelectCategory={setSelectedCategory}
