@@ -3,13 +3,28 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
+import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { carConfig } from "@/data/configuration";
+import {
+  ackermannAngles,
+  FRONT_AXLE_Z,
+  REAR_AXLE_Z,
+  TRACK_HALF_WIDTH,
+  WHEEL_RADIUS,
+  type WheelSteerAngles,
+} from "@/lib/vehicle";
 
 export interface RenaultCapturProps {
-  /** Velocità lineare istantanea (unità/s) per rotazione ruote e fari stop. */
+  /** Velocità lineare con segno (m/s) lungo la strada (negativa in retromarcia). */
   speedRef: React.RefObject<number>;
-  /** Angolo di sterzo normalizzato [-0.42..0.42] ricavato dalla curvatura della strada. */
+  /** Accelerazione longitudinale (m/s²) misurata dallo spostamento reale. */
+  accelRef: React.RefObject<number>;
+  /** Velocità angolare di imbardata (rad/s) della strada sotto l'auto. */
+  yawRateRef: React.RefObject<number>;
+  /** Angolo di sterzo al centro dell'avantreno (rad), positivo = curva verso +X. */
   steerRef: React.RefObject<number>;
+  /** Angolo cumulativo di rotolamento delle ruote (rad) = distanza percorsa / raggio. */
+  wheelRollRef: React.RefObject<number>;
   /** Intensità fari [0..1] controllata dal passaggio Blue Hour -> Mattino d'Oro. */
   headlightPowerRef: React.RefObject<number>;
   /** Indica se l'auto è ferma o sta frenando per intensificare le luci posteriori. */
@@ -18,37 +33,57 @@ export interface RenaultCapturProps {
   highlighted?: boolean;
   /** Disabilita ombre dinamiche su mobile per performance. */
   castShadows?: boolean;
+  /** Disattiva beccheggio/rollio della scocca quando l'utente preferisce meno movimento. */
+  reducedMotion?: boolean;
 }
 
-const WHEEL_RADIUS = 0.34;
-const FRONT_AXLE_Z = 1.33;
-const REAR_AXLE_Z = -1.31;
-const TRACK_HALF_WIDTH = 0.815;
+/** Posizione delle quattro ruote: side +1 = lato +X (sinistra), -1 = lato -X (destra). */
+const WHEELS = [
+  { side: 1, z: FRONT_AXLE_Z, front: true },
+  { side: -1, z: FRONT_AXLE_Z, front: true },
+  { side: 1, z: REAR_AXLE_Z, front: false },
+  { side: -1, z: REAR_AXLE_Z, front: false },
+] as const;
+
+const SPOKE_COUNT = 5;
+const CREASE_ANGLE = Math.PI / 5;
 
 /**
- * Ricostruzione 3D scolpita ad alta fedeltà della Renault Captur 2025 (restyling).
- * Include fiancate rastremate verso il tetto (tumblehome), parafanghi svasati,
- * pneumatici LatheGeometry con spalla arrotondata, dischi freno, firme DRL verticali
- * a mezzo diamante, losanga Nouvel'R e tetto bi-tone.
+ * Ricostruzione 3D scolpita della Renault Captur 2025 (restyling).
+ *
+ * Gerarchia delle ruote (una per angolo):
+ *   WheelMount (posizione sull'assale, raggio = altezza da terra)
+ *     SteeringPivot (ruota solo sull'asse Y, solo anteriori)
+ *       RollingWheel (ruota solo sull'asse X = asse dell'assale)
+ *         WheelFace (specchio per il lato sinistro)
+ *           Tire / Alloy / BrakeDisc / Spokes / Hub
+ *       BrakeCaliper (solidale allo sterzo, non ruota)
+ *
+ * Tutte le geometrie rotazionali (LatheGeometry/Cylinder) vengono girate
+ * di -90° attorno a Z: l'asse di rivoluzione Y diventa X, cioè l'asse dell'assale.
  */
 export default function RenaultCaptur({
   speedRef,
+  accelRef,
+  yawRateRef,
   steerRef,
+  wheelRollRef,
   headlightPowerRef,
   brakingRef,
   highlighted = false,
   castShadows = true,
+  reducedMotion = false,
 }: RenaultCapturProps) {
   const chassisRef = useRef<THREE.Group>(null);
-  const flSteerRef = useRef<THREE.Group>(null);
-  const frSteerRef = useRef<THREE.Group>(null);
-  const wheelSpinRefs = useRef<Array<THREE.Group | null>>([null, null, null, null]);
+  const pivotRefs = useRef<Array<THREE.Group | null>>([null, null, null, null]);
+  const rollRefs = useRef<Array<THREE.Group | null>>([null, null, null, null]);
   const headSpotLeftRef = useRef<THREE.SpotLight>(null);
   const headSpotRightRef = useRef<THREE.SpotLight>(null);
   const beamLeftMatRef = useRef<THREE.MeshBasicMaterial>(null);
   const beamRightMatRef = useRef<THREE.MeshBasicMaterial>(null);
   const tailMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
   const highlightSpotRef = useRef<THREE.PointLight>(null);
+  const steerAnglesRef = useRef<WheelSteerAngles>({ plusX: 0, minusX: 0 });
 
   const spotTargetLeft = useMemo(() => {
     const obj = new THREE.Object3D();
@@ -63,21 +98,13 @@ export default function RenaultCaptur({
   }, []);
 
   const {
-    mainBodyGeo,
-    cabinUpperGeo,
-    roofCapGeo,
-    fenderFlareGeo,
-    windshieldGeo,
-    rearGlassGeo,
-    sideGlassGeo,
-    hoodGeo,
-    tireGeo,
-    rimGeo,
-    discGeo,
-    beamConeGeo,
+    geometries,
     materials,
   } = useMemo(() => {
-    // 1. Scocca inferiore scolpita con rastremazione automobilistica anteriore/posteriore
+    // 1. Scocca inferiore. Il profilo è espresso in coordinate reali: x = lunghezza (+avanti), y = altezza.
+    //    I passaruota (raggio 0.455, ridotto a ~0.385 dal bisello) sono centrati esattamente sugli assali
+    //    con ~4.5 cm di gioco attorno al pneumatico (raggio 0.34).
+    const ARCH_R = 0.455;
     const bodyShape = new THREE.Shape();
     bodyShape.moveTo(-2.05, 0.34);
     bodyShape.lineTo(-2.12, 0.56);
@@ -87,42 +114,43 @@ export default function RenaultCaptur({
     bodyShape.quadraticCurveTo(1.52, 1.04, 1.98, 0.89);
     bodyShape.quadraticCurveTo(2.14, 0.79, 2.13, 0.56);
     bodyShape.lineTo(2.07, 0.33);
-    bodyShape.lineTo(1.75, 0.29);
-    bodyShape.absarc(1.33, 0.34, 0.415, 0, Math.PI, false);
-    bodyShape.lineTo(-0.9, 0.29);
-    bodyShape.absarc(-1.31, 0.34, 0.415, 0, Math.PI, false);
+    bodyShape.lineTo(FRONT_AXLE_Z + ARCH_R, 0.29);
+    bodyShape.absarc(FRONT_AXLE_Z, WHEEL_RADIUS, ARCH_R, 0, Math.PI, false);
+    bodyShape.lineTo(REAR_AXLE_Z + ARCH_R, 0.29);
+    bodyShape.absarc(REAR_AXLE_Z, WHEEL_RADIUS, ARCH_R, 0, Math.PI, false);
     bodyShape.lineTo(-2.05, 0.34);
 
-    const extrudedBody = new THREE.ExtrudeGeometry(bodyShape, {
-      depth: 1.56,
+    const bodyDepth = 1.56;
+    let body: THREE.BufferGeometry = new THREE.ExtrudeGeometry(bodyShape, {
+      depth: bodyDepth,
       bevelEnabled: true,
       bevelThickness: 0.09,
       bevelSize: 0.07,
-      bevelSegments: 5,
-      curveSegments: 22,
+      bevelSegments: 6,
+      curveSegments: 28,
     });
-    extrudedBody.center();
-    extrudedBody.rotateY(-Math.PI / 2);
-    extrudedBody.computeBoundingBox();
-    const bodyCenterY =
-      (extrudedBody.boundingBox!.max.y + extrudedBody.boundingBox!.min.y) * 0.5;
-    extrudedBody.translate(0, 0.68 - bodyCenterY, 0);
+    // Nessuna ricentratura su X/Y: gli assali restano nelle coordinate di progetto.
+    body.translate(0, 0, -bodyDepth / 2);
+    body.rotateY(-Math.PI / 2); // x(profilo) -> z(avanti); estrusione -> larghezza (X)
 
-    // Rastremazione naturale su paraurti anteriore/posteriore e fiancata alta
-    const bPos = extrudedBody.attributes.position;
+    // Rastremazione naturale su paraurti anteriore/posteriore e fiancata alta (tumblehome)
+    const bPos = body.attributes.position;
     for (let i = 0; i < bPos.count; i++) {
       const x = bPos.getX(i);
       const y = bPos.getY(i);
       const z = bPos.getZ(i);
-      const frontTaper = z > 1.35 ? (z - 1.35) * 0.16 : 0;
+      const frontTaper = z > 1.45 ? (z - 1.45) * 0.16 : 0;
       const rearTaper = z < -1.45 ? (-1.45 - z) * 0.13 : 0;
       const upperTumblehome = y > 0.76 ? (y - 0.76) * 0.24 : 0;
       const scaleX = Math.max(0.76, 1 - frontTaper - rearTaper - upperTumblehome);
       bPos.setX(i, x * scaleX);
     }
-    extrudedBody.computeVertexNormals();
+    // Normali morbide sulle superfici curve, spigoli netti oltre l'angolo di piega
+    const bodyCreased = toCreasedNormals(body, CREASE_ANGLE);
+    body.dispose();
+    body = bodyCreased;
 
-    // 2. Serra / Padiglione superiore con tumblehome reale verso il tetto
+    // 2. Serra / padiglione superiore con tumblehome verso il tetto
     const cabinShape = new THREE.Shape();
     cabinShape.moveTo(-1.76, 0.96);
     cabinShape.quadraticCurveTo(-1.54, 1.38, -1.24, 1.5);
@@ -130,26 +158,28 @@ export default function RenaultCaptur({
     cabinShape.quadraticCurveTo(0.66, 1.46, 1.02, 1.02);
     cabinShape.lineTo(-1.76, 0.96);
 
-    const extrudedCabin = new THREE.ExtrudeGeometry(cabinShape, {
+    let cabin: THREE.BufferGeometry = new THREE.ExtrudeGeometry(cabinShape, {
       depth: 1.24,
       bevelEnabled: true,
       bevelThickness: 0.06,
       bevelSize: 0.05,
-      bevelSegments: 4,
-      curveSegments: 18,
+      bevelSegments: 5,
+      curveSegments: 24,
     });
-    extrudedCabin.center();
-    extrudedCabin.rotateY(-Math.PI / 2);
-    extrudedCabin.translate(0, 1.25, -0.34);
+    cabin.center();
+    cabin.rotateY(-Math.PI / 2);
+    cabin.translate(0, 1.25, -0.34);
 
-    const cPos = extrudedCabin.attributes.position;
+    const cPos = cabin.attributes.position;
     for (let i = 0; i < cPos.count; i++) {
       const x = cPos.getX(i);
       const y = cPos.getY(i);
       const heightFactor = THREE.MathUtils.clamp((y - 0.98) / 0.56, 0, 1);
       cPos.setX(i, x * (1 - heightFactor * 0.14));
     }
-    extrudedCabin.computeVertexNormals();
+    const cabinCreased = toCreasedNormals(cabin, CREASE_ANGLE);
+    cabin.dispose();
+    cabin = cabinCreased;
 
     // 3. Tetto bi-tone superiore
     const roofShape = new THREE.Shape();
@@ -159,23 +189,26 @@ export default function RenaultCaptur({
     roofShape.lineTo(-1.34, 0.06);
     roofShape.closePath();
 
-    const extrudedRoof = new THREE.ExtrudeGeometry(roofShape, {
+    let roof: THREE.BufferGeometry = new THREE.ExtrudeGeometry(roofShape, {
       depth: 1.12,
       bevelEnabled: true,
       bevelThickness: 0.03,
       bevelSize: 0.03,
       bevelSegments: 3,
     });
-    extrudedRoof.center();
-    extrudedRoof.rotateY(-Math.PI / 2);
-    extrudedRoof.translate(0, 1.545, -0.45);
+    roof.center();
+    roof.rotateY(-Math.PI / 2);
+    roof.translate(0, 1.545, -0.45);
+    const roofCreased = toCreasedNormals(roof, CREASE_ANGLE);
+    roof.dispose();
+    roof = roofCreased;
 
-    // 4. Parafanghi scolpiti svasati
-    const flare = new THREE.TorusGeometry(0.415, 0.055, 10, 26, Math.PI);
+    // 4. Cornice passaruota: anello nel piano YZ (perpendicolare all'assale X), mezzo giro superiore
+    const flare = new THREE.TorusGeometry(0.415, 0.038, 12, 32, Math.PI);
 
     // 5. Cofano motore scolpito a conchiglia
-    const hoodGeometry = new THREE.BoxGeometry(1.48, 0.14, 1.06, 8, 2, 8);
-    const hoodPos = hoodGeometry.attributes.position;
+    const hood = new THREE.BoxGeometry(1.48, 0.14, 1.06, 10, 2, 10);
+    const hoodPos = hood.attributes.position;
     for (let i = 0; i < hoodPos.count; i++) {
       const x = hoodPos.getX(i);
       const y = hoodPos.getY(i);
@@ -189,34 +222,71 @@ export default function RenaultCaptur({
         hoodPos.setX(i, x * (1 - (z - 0.2) * 0.2));
       }
     }
-    hoodGeometry.computeVertexNormals();
+    hood.computeVertexNormals();
 
     // 6. Vetri sagomati
-    const wsGeo = new THREE.BoxGeometry(1.2, 0.62, 0.03);
-    const rgGeo = new THREE.BoxGeometry(1.12, 0.46, 0.03);
-    const sgGeo = new THREE.BoxGeometry(1.31, 0.35, 1.96);
+    const windshield = new THREE.BoxGeometry(1.2, 0.62, 0.03);
+    const rearGlass = new THREE.BoxGeometry(1.12, 0.46, 0.03);
+    const sideGlass = new THREE.BoxGeometry(1.31, 0.35, 1.96);
 
-    // 7. Pneumatico realistico con spalla arrotondata (LatheGeometry) + cerchio 18" + disco freno
+    // 7. Ruote. Profili LatheGeometry: x = raggio, y = coordinata assiale (+ = verso l'esterno).
+    //    L'ordine dei punti definisce l'orientamento delle normali (verso l'esterno del solido).
+    const R = WHEEL_RADIUS;
     const tireProfile = [
-      new THREE.Vector2(0.225, -0.11),
-      new THREE.Vector2(0.27, -0.118),
-      new THREE.Vector2(0.325, -0.112),
-      new THREE.Vector2(WHEEL_RADIUS, -0.088),
-      new THREE.Vector2(WHEEL_RADIUS, 0.088),
-      new THREE.Vector2(0.325, 0.112),
-      new THREE.Vector2(0.27, 0.118),
-      new THREE.Vector2(0.225, 0.11),
+      new THREE.Vector2(0.228, -0.086),
+      new THREE.Vector2(0.245, -0.098),
+      new THREE.Vector2(0.283, -0.104),
+      new THREE.Vector2(0.318, -0.097),
+      new THREE.Vector2(0.333, -0.082),
+      new THREE.Vector2(R - 0.0015, -0.058),
+      new THREE.Vector2(R, -0.03),
+      new THREE.Vector2(R, 0.03),
+      new THREE.Vector2(R - 0.0015, 0.058),
+      new THREE.Vector2(0.333, 0.082),
+      new THREE.Vector2(0.318, 0.097),
+      new THREE.Vector2(0.283, 0.104),
+      new THREE.Vector2(0.245, 0.098),
+      new THREE.Vector2(0.228, 0.086),
     ];
-    const tGeo = new THREE.LatheGeometry(tireProfile, 34);
-    tGeo.rotateZ(Math.PI / 2);
+    const tire = new THREE.LatheGeometry(tireProfile, 56);
+    tire.rotateZ(-Math.PI / 2);
 
-    const rGeo = new THREE.CylinderGeometry(0.228, 0.228, 0.21, 24);
-    rGeo.rotateZ(Math.PI / 2);
+    // Cerchio in lega (solo anello/canale + labbro); disco e razze sono separati e visibili tra le razze
+    const rimProfile = [
+      new THREE.Vector2(0.2, -0.088),
+      new THREE.Vector2(0.232, -0.088),
+      new THREE.Vector2(0.232, 0.09),
+      new THREE.Vector2(0.225, 0.099),
+      new THREE.Vector2(0.2, 0.096),
+      new THREE.Vector2(0.2, -0.088),
+    ];
+    const rim = new THREE.LatheGeometry(rimProfile, 48);
+    rim.rotateZ(-Math.PI / 2);
 
-    const dGeo = new THREE.CylinderGeometry(0.165, 0.165, 0.028, 22);
-    dGeo.rotateZ(Math.PI / 2);
+    // Fondo scuro del canale (evita di vedere la scocca attraverso le razze)
+    const backing = new THREE.CylinderGeometry(0.205, 0.205, 0.012, 32);
+    backing.rotateZ(Math.PI / 2);
+    backing.translate(-0.02, 0, 0);
 
-    // 8. Cono volumetrico morbido fari (per l'ora blu)
+    const disc = new THREE.CylinderGeometry(0.168, 0.168, 0.026, 40);
+    disc.rotateZ(Math.PI / 2);
+    disc.translate(0.012, 0, 0);
+
+    const hub = new THREE.CylinderGeometry(0.056, 0.062, 0.05, 24);
+    hub.rotateZ(Math.PI / 2);
+    hub.translate(0.082, 0, 0);
+
+    const hubCap = new THREE.CylinderGeometry(0.03, 0.03, 0.012, 20);
+    hubCap.rotateZ(Math.PI / 2);
+    hubCap.translate(0.11, 0, 0);
+
+    // Razza: scatola radiale con leggera rastremazione, poi coppie a V
+    const spoke = new THREE.BoxGeometry(0.024, 0.165, 0.034, 1, 1, 1);
+
+    // 8. Pinza freno (non rotante)
+    const caliper = new THREE.BoxGeometry(0.07, 0.085, 0.11);
+
+    // 9. Cono volumetrico morbido fari
     const cone = new THREE.ConeGeometry(1.75, 11.0, 24, 1, true);
     cone.translate(0, -5.5, 0);
     cone.rotateX(-Math.PI / 2);
@@ -265,21 +335,34 @@ export default function RenaultCaptur({
     });
 
     const rubber = new THREE.MeshStandardMaterial({
-      color: "#1B1F23",
-      roughness: 0.84,
-      metalness: 0.08,
+      color: "#15181B",
+      roughness: 0.88,
+      metalness: 0.05,
     });
 
     const alloyDark = new THREE.MeshStandardMaterial({
-      color: "#232B32",
-      metalness: 0.76,
-      roughness: 0.28,
+      color: "#1A2126",
+      metalness: 0.8,
+      roughness: 0.3,
+    });
+
+    const alloySilver = new THREE.MeshStandardMaterial({
+      color: "#D2D9DE",
+      metalness: 0.92,
+      roughness: 0.22,
+      envMapIntensity: 1.6,
     });
 
     const rotorMat = new THREE.MeshStandardMaterial({
       color: "#8D98A0",
       metalness: 0.85,
       roughness: 0.34,
+    });
+
+    const caliperMat = new THREE.MeshStandardMaterial({
+      color: "#2B3338",
+      metalness: 0.5,
+      roughness: 0.45,
     });
 
     const drlLed = new THREE.MeshStandardMaterial({
@@ -316,18 +399,25 @@ export default function RenaultCaptur({
     });
 
     return {
-      mainBodyGeo: extrudedBody,
-      cabinUpperGeo: extrudedCabin,
-      roofCapGeo: extrudedRoof,
-      fenderFlareGeo: flare,
-      windshieldGeo: wsGeo,
-      rearGlassGeo: rgGeo,
-      sideGlassGeo: sgGeo,
-      hoodGeo: hoodGeometry,
-      tireGeo: tGeo,
-      rimGeo: rGeo,
-      discGeo: dGeo,
-      beamConeGeo: cone,
+      geometries: {
+        body,
+        cabin,
+        roof,
+        flare,
+        hood,
+        windshield,
+        rearGlass,
+        sideGlass,
+        tire,
+        rim,
+        backing,
+        disc,
+        hub,
+        hubCap,
+        spoke,
+        caliper,
+        cone,
+      },
       materials: {
         paint,
         roofPaint,
@@ -336,7 +426,9 @@ export default function RenaultCaptur({
         glass,
         rubber,
         alloyDark,
+        alloySilver,
         rotorMat,
+        caliperMat,
         drlLed,
         tailLed,
         plateMat,
@@ -349,74 +441,52 @@ export default function RenaultCaptur({
   useEffect(() => {
     tailMatRef.current = materials.tailLed;
     return () => {
-      mainBodyGeo.dispose();
-      cabinUpperGeo.dispose();
-      roofCapGeo.dispose();
-      fenderFlareGeo.dispose();
-      windshieldGeo.dispose();
-      rearGlassGeo.dispose();
-      sideGlassGeo.dispose();
-      hoodGeo.dispose();
-      tireGeo.dispose();
-      rimGeo.dispose();
-      discGeo.dispose();
-      beamConeGeo.dispose();
+      Object.values(geometries).forEach((g) => g.dispose());
       Object.values(materials).forEach((m) => m.dispose());
     };
-  }, [
-    mainBodyGeo,
-    cabinUpperGeo,
-    roofCapGeo,
-    fenderFlareGeo,
-    windshieldGeo,
-    rearGlassGeo,
-    sideGlassGeo,
-    hoodGeo,
-    tireGeo,
-    rimGeo,
-    discGeo,
-    beamConeGeo,
-    materials,
-  ]);
+  }, [geometries, materials]);
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.05);
     const speed = speedRef.current ?? 0;
-    const steer = steerRef.current ?? 0;
+    const accel = accelRef.current ?? 0;
+    const yawRate = yawRateRef.current ?? 0;
     const beamPower = headlightPowerRef.current ?? 0.6;
     const isBraking = brakingRef.current ?? false;
 
-    // Rotazione accurata delle 4 ruote alla velocità lineare lungo la spline
-    const angularDelta = (speed * dt) / WHEEL_RADIUS;
-    for (const wheel of wheelSpinRefs.current) {
-      if (wheel) wheel.rotation.x += angularDelta;
+    // === Ruote: un'unica fonte per ogni asse ===
+    // Rotolamento (asse X dell'assale): angolo cumulativo = distanza / raggio, deciso da JourneyController.
+    const roll = wheelRollRef.current ?? 0;
+    for (let i = 0; i < 4; i++) {
+      const wheel = rollRefs.current[i];
+      if (wheel) wheel.rotation.x = roll;
     }
 
-    if (flSteerRef.current) {
-      flSteerRef.current.rotation.y = THREE.MathUtils.damp(
-        flSteerRef.current.rotation.y,
-        steer,
-        8,
-        dt,
-      );
+    // Sterzo (asse Y) solo sull'avantreno, con relazione di Ackermann: la ruota interna sterza di più.
+    const angles = ackermannAngles(steerRef.current ?? 0, steerAnglesRef.current);
+    const pivotPlus = pivotRefs.current[0];
+    const pivotMinus = pivotRefs.current[1];
+    if (pivotPlus) {
+      pivotPlus.rotation.y = THREE.MathUtils.damp(pivotPlus.rotation.y, angles.plusX, 14, dt);
     }
-    if (frSteerRef.current) {
-      frSteerRef.current.rotation.y = THREE.MathUtils.damp(
-        frSteerRef.current.rotation.y,
-        steer,
-        8,
-        dt,
-      );
+    if (pivotMinus) {
+      pivotMinus.rotation.y = THREE.MathUtils.damp(pivotMinus.rotation.y, angles.minusX, 14, dt);
     }
 
+    // === Scocca: assetto sulle sospensioni (le ruote restano a contatto con la strada) ===
+    // Frenata: muso in basso (+rotation.x). Accelerazione: muso in alto. Curva a sinistra: rollio verso l'esterno.
     if (chassisRef.current) {
-      const targetPitch = isBraking ? 0.006 : THREE.MathUtils.clamp(-speed * 0.001, -0.012, 0.012);
-      chassisRef.current.rotation.x = THREE.MathUtils.damp(
-        chassisRef.current.rotation.x,
-        targetPitch,
-        6,
-        dt,
-      );
+      const lateralAccel = speed * yawRate;
+      const calm = reducedMotion ? 0 : 1;
+      const targetPitch = THREE.MathUtils.clamp(-accel * 0.0022, -0.014, 0.014) * calm;
+      const targetRoll = THREE.MathUtils.clamp(lateralAccel * 0.0032, -0.02, 0.02) * calm;
+      const targetHeave =
+        -THREE.MathUtils.clamp(Math.abs(accel) * 0.0008 + Math.abs(lateralAccel) * 0.0006, 0, 0.012) * calm;
+
+      const chassis = chassisRef.current;
+      chassis.rotation.x = THREE.MathUtils.damp(chassis.rotation.x, targetPitch, 7, dt);
+      chassis.rotation.z = THREE.MathUtils.damp(chassis.rotation.z, targetRoll, 7, dt);
+      chassis.position.y = THREE.MathUtils.damp(chassis.position.y, targetHeave, 7, dt);
     }
 
     const spotIntensity = 28 * beamPower;
@@ -445,13 +515,6 @@ export default function RenaultCaptur({
     }
   });
 
-  const wheelPositions: Array<[number, number, number, boolean, number]> = [
-    [-TRACK_HALF_WIDTH, WHEEL_RADIUS, FRONT_AXLE_Z, true, 0],
-    [TRACK_HALF_WIDTH, WHEEL_RADIUS, FRONT_AXLE_Z, true, 1],
-    [-TRACK_HALF_WIDTH, WHEEL_RADIUS, REAR_AXLE_Z, false, 2],
-    [TRACK_HALF_WIDTH, WHEEL_RADIUS, REAR_AXLE_Z, false, 3],
-  ];
-
   return (
     <group>
       <pointLight
@@ -465,11 +528,11 @@ export default function RenaultCaptur({
 
       <group ref={chassisRef}>
         {/* Scocca scolpita principale */}
-        <mesh geometry={mainBodyGeo} material={materials.paint} castShadow={castShadows} receiveShadow />
+        <mesh geometry={geometries.body} material={materials.paint} castShadow={castShadows} receiveShadow />
 
         {/* Cofano motore scolpito */}
         <mesh
-          geometry={hoodGeo}
+          geometry={geometries.hood}
           material={materials.paint}
           position={[0, 1.03, 1.46]}
           castShadow={castShadows}
@@ -477,30 +540,30 @@ export default function RenaultCaptur({
 
         {/* Minigonne e protezioni sottoporta SUV */}
         <mesh material={materials.cladding} position={[0, 0.26, 0]}>
-          <boxGeometry args={[1.68, 0.13, 1.88]} />
+          <boxGeometry args={[1.6, 0.13, 1.7]} />
         </mesh>
         {[-0.85, 0.85].map((x) => (
           <mesh key={`sill-${x}`} material={materials.chrome} position={[x, 0.28, 0]}>
-            <boxGeometry args={[0.025, 0.04, 1.54]} />
+            <boxGeometry args={[0.025, 0.04, 1.4]} />
           </mesh>
         ))}
 
-        {/* Passaruota svasati */}
-        {[-0.84, 0.84].map((x) =>
+        {/* Cornici passaruota: anello attorno al centro ruota, nel piano YZ */}
+        {[-0.83, 0.83].map((x) =>
           [FRONT_AXLE_Z, REAR_AXLE_Z].map((z) => (
             <mesh
               key={`arch-${x}-${z}`}
-              geometry={fenderFlareGeo}
+              geometry={geometries.flare}
               material={materials.cladding}
-              position={[x, 0.36, z]}
-              rotation={[0, 0, Math.PI / 2]}
+              position={[x, WHEEL_RADIUS, z]}
+              rotation={[0, Math.PI / 2, 0]}
             />
           )),
         )}
 
         {/* Serra vetri e tetto bi-tone */}
-        <mesh geometry={cabinUpperGeo} material={materials.roofPaint} castShadow={castShadows} />
-        <mesh geometry={roofCapGeo} material={materials.roofPaint} castShadow={castShadows} />
+        <mesh geometry={geometries.cabin} material={materials.roofPaint} castShadow={castShadows} />
+        <mesh geometry={geometries.roof} material={materials.roofPaint} castShadow={castShadows} />
 
         {/* Barre longitudinali al tetto + antenna pinna di squalo */}
         {[-0.5, 0.5].map((rx) => (
@@ -529,18 +592,18 @@ export default function RenaultCaptur({
 
         {/* Vetri (parabrezza, lunotto, laterali) */}
         <mesh
-          geometry={windshieldGeo}
+          geometry={geometries.windshield}
           material={materials.glass}
           position={[0, 1.29, 0.69]}
           rotation={[-0.95, 0, 0]}
         />
         <mesh
-          geometry={rearGlassGeo}
+          geometry={geometries.rearGlass}
           material={materials.glass}
           position={[0, 1.28, -1.68]}
           rotation={[0.76, 0, 0]}
         />
-        <mesh geometry={sideGlassGeo} material={materials.glass} position={[0, 1.24, -0.45]} />
+        <mesh geometry={geometries.sideGlass} material={materials.glass} position={[0, 1.24, -0.45]} />
 
         {/* Specchietti retrovisori */}
         {[-1, 1].map((side) => (
@@ -682,7 +745,7 @@ export default function RenaultCaptur({
           decay={1.7}
           color="#FFF2D9"
         />
-        <mesh geometry={beamConeGeo} position={[-0.6, 0.85, 2.14]}>
+        <mesh geometry={geometries.cone} position={[-0.6, 0.85, 2.14]}>
           <meshBasicMaterial
             ref={beamLeftMatRef}
             color="#FFF2DA"
@@ -693,7 +756,7 @@ export default function RenaultCaptur({
             side={THREE.DoubleSide}
           />
         </mesh>
-        <mesh geometry={beamConeGeo} position={[0.6, 0.85, 2.14]}>
+        <mesh geometry={geometries.cone} position={[0.6, 0.85, 2.14]}>
           <meshBasicMaterial
             ref={beamRightMatRef}
             color="#FFF2DA"
@@ -706,63 +769,63 @@ export default function RenaultCaptur({
         </mesh>
       </group>
 
-      {/* === 4 RUOTE 18" CON SPALLA ARROTONDATA, DISCHI FRENO E RAZZE DIAMANTATE === */}
-      {wheelPositions.map(([x, y, z, isFront, idx]) => {
-        const sideSign = x < 0 ? -1 : 1;
-        const wheelContent = (
+      {/* === RUOTE === WheelMount > SteeringPivot > RollingWheel > WheelFace > componenti */}
+      {WHEELS.map((wheel, index) => (
+        <group
+          key={`wheel-${index}`}
+          position={[wheel.side * TRACK_HALF_WIDTH, WHEEL_RADIUS, wheel.z]}
+        >
+          {/* SteeringPivot: viene ruotato solo per le ruote anteriori (asse Y) */}
           <group
             ref={(el) => {
-              wheelSpinRefs.current[idx] = el;
+              pivotRefs.current[index] = wheel.front ? el : null;
             }}
           >
-            <mesh geometry={tireGeo} material={materials.rubber} castShadow={castShadows} />
-            <mesh geometry={rimGeo} material={materials.alloyDark} />
-            <mesh geometry={discGeo} material={materials.rotorMat} position={[-sideSign * 0.04, 0, 0]} />
-            {[0, 1, 2, 3, 4].map((spoke) => {
-              const angle = (spoke * Math.PI * 2) / 5;
-              return (
-                <group key={spoke} rotation={[angle, 0, 0]}>
-                  <mesh
-                    material={materials.chrome}
-                    position={[sideSign * 0.106, 0.112, 0.025]}
-                    rotation={[0.22, 0, 0]}
-                  >
-                    <boxGeometry args={[0.018, 0.18, 0.028]} />
-                  </mesh>
-                  <mesh
-                    material={materials.chrome}
-                    position={[sideSign * 0.106, 0.112, -0.025]}
-                    rotation={[-0.22, 0, 0]}
-                  >
-                    <boxGeometry args={[0.018, 0.18, 0.028]} />
-                  </mesh>
-                </group>
-              );
-            })}
-            <mesh material={materials.chrome} position={[sideSign * 0.114, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
-              <cylinderGeometry args={[0.052, 0.052, 0.02, 16]} />
-            </mesh>
-          </group>
-        );
-
-        if (isFront) {
-          return (
+            {/* RollingWheel: ruota solo sull'asse X (asse dell'assale) */}
             <group
-              key={`wheel-steer-${idx}`}
-              ref={idx === 0 ? flSteerRef : frSteerRef}
-              position={[x, y, z]}
+              ref={(el) => {
+                rollRefs.current[index] = el;
+              }}
             >
-              {wheelContent}
-            </group>
-          );
-        }
+              {/* WheelFace: specchia i dettagli assiali per il lato sinistro (+X outward = +asse) */}
+              <group scale={[wheel.side, 1, 1]}>
+                <mesh geometry={geometries.tire} material={materials.rubber} castShadow={castShadows} />
+                <mesh geometry={geometries.rim} material={materials.alloySilver} />
+                <mesh geometry={geometries.backing} material={materials.alloyDark} />
+                <mesh geometry={geometries.disc} material={materials.rotorMat} />
 
-        return (
-          <group key={`wheel-${idx}`} position={[x, y, z]}>
-            {wheelContent}
+                {/* Razze a V: ruotano con il cerchio */}
+                {Array.from({ length: SPOKE_COUNT }, (_, spokeIndex) => (
+                  <group key={spokeIndex} rotation={[(spokeIndex * Math.PI * 2) / SPOKE_COUNT, 0, 0]}>
+                    <mesh
+                      geometry={geometries.spoke}
+                      material={materials.alloySilver}
+                      position={[0.07, 0.125, 0.02]}
+                      rotation={[0.17, 0, 0]}
+                    />
+                    <mesh
+                      geometry={geometries.spoke}
+                      material={materials.alloySilver}
+                      position={[0.07, 0.125, -0.02]}
+                      rotation={[-0.17, 0, 0]}
+                    />
+                  </group>
+                ))}
+
+                <mesh geometry={geometries.hub} material={materials.alloyDark} />
+                <mesh geometry={geometries.hubCap} material={materials.chrome} />
+              </group>
+            </group>
+
+            {/* Pinza freno: solidale allo sterzo, non ruota con la ruota */}
+            <mesh
+              geometry={geometries.caliper}
+              material={materials.caliperMat}
+              position={[wheel.side * 0.02, 0.12, -0.1]}
+            />
           </group>
-        );
-      })}
+        </group>
+      ))}
     </group>
   );
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import { Component, Suspense, useEffect, useState, type ReactNode } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useThree } from "@react-three/fiber";
+import { PerformanceMonitor } from "@react-three/drei";
 import * as THREE from "three";
 import type { JourneyStopId } from "@/data/journey";
 import type { LicenceCategoryId } from "@/data/services";
@@ -39,6 +40,21 @@ class CanvasErrorBoundary extends Component<
     if (this.state.hasError) return null;
     return this.props.children;
   }
+}
+
+/**
+ * Qualità adattiva: se il frame rate scende in modo stabile riduce il pixel ratio,
+ * e lo ripristina quando il dispositivo regge di nuovo. Non causa re-render React della scena.
+ */
+function AdaptiveQuality({ maxDpr }: { maxDpr: number }) {
+  const setDpr = useThree((state) => state.setDpr);
+  return (
+    <PerformanceMonitor
+      flipflops={3}
+      onDecline={() => setDpr(1)}
+      onIncline={() => setDpr(Math.min(window.devicePixelRatio, maxDpr))}
+    />
+  );
 }
 
 export default function ExperienceCanvas({
@@ -104,6 +120,7 @@ export default function ExperienceCanvas({
           }}
         >
           <Suspense fallback={null}>
+            <AdaptiveQuality maxDpr={dprRange[1]} />
             <JourneyController
               trackProgressRef={trackProgressRef}
               activeStopId={activeStopId}

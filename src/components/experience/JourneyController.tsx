@@ -5,7 +5,9 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { JourneyStopId } from "@/data/journey";
 import type { LicenceCategoryId } from "@/data/services";
-import { createRoadCurve, getRoadFrameAtT } from "@/lib/scene-config";
+import { smoothDamp, wrapAngle, type SmoothState } from "@/lib/motion";
+import { createRoadCurve, createRoadFrame, writeRoadFrame } from "@/lib/scene-config";
+import { WHEELBASE, WHEEL_RADIUS } from "@/lib/vehicle";
 import Road from "@/components/experience/Road";
 import World from "@/components/experience/World";
 import SceneEnvironment from "@/components/experience/Environment";
@@ -23,6 +25,13 @@ interface JourneyControllerProps {
   onLoadProgress: (percent: number) => void;
   onFirstFrameRendered: () => void;
 }
+
+/** Tempo di risposta del veicolo allo scroll (s): velocità continua, nessun colpo di avvio. */
+const FOLLOW_SMOOTH_TIME = 0.24;
+/** Velocità massima del veicolo (m/s): evita "teletrasporti" quando si salta tra tappe dal menu. */
+const MAX_SPEED = 30;
+/** Distanza di osservazione per calcolare la curvatura e quindi lo sterzo (m). */
+const STEER_LOOKAHEAD = 6;
 
 export default function JourneyController({
   trackProgressRef,
@@ -63,16 +72,27 @@ export default function JourneyController({
   }, [onLoadProgress]);
 
   const carGroupRef = useRef<THREE.Group>(null);
-  const initializedTrackRef = useRef(false);
+  const initializedRef = useRef(false);
+
+  // Unica posizione lisciata autorevole lungo la spline (parametro in lunghezza d'arco).
   const smoothedTRef = useRef(0.02);
+  const trackVelocityRef = useRef<SmoothState>({ velocity: 0 });
+
+  // Stato cinematico misurato dallo spostamento reale
   const carPositionRef = useRef(new THREE.Vector3(0, 0.8, 195));
   const carYawRef = useRef(Math.PI);
   const speedRef = useRef(0);
+  const accelRef = useRef(0);
+  const yawRateRef = useRef(0);
   const steerRef = useRef(0);
+  const wheelRollRef = useRef(0);
   const headlightPowerRef = useRef(0.85);
   const brakingRef = useRef(false);
 
+  // Oggetti riutilizzati nel loop: nessuna allocazione per frame
+  const frameRef = useRef(createRoadFrame());
   const aheadTangentRef = useRef(new THREE.Vector3());
+  const prevYawRef = useRef(Math.PI);
 
   useFrame((_, delta) => {
     if (stage === 3 && !firstFrameSentRef.current) {
@@ -81,35 +101,60 @@ export default function JourneyController({
       onFirstFrameRendered();
     }
 
+    // Passo fisico limitato: dopo una pausa della scheda non si produce un salto.
     const dt = Math.max(0.001, Math.min(delta, 0.05));
     const targetT = THREE.MathUtils.clamp(trackProgressRef.current ?? 0.02, 0.004, 0.99);
 
-    if (!initializedTrackRef.current) {
+    if (!initializedRef.current) {
       smoothedTRef.current = targetT;
-      initializedTrackRef.current = true;
+      initializedRef.current = true;
     }
 
     const prevT = smoothedTRef.current;
-    const nextT = reducedMotion
-      ? targetT
-      : THREE.MathUtils.damp(prevT, targetT, 5.0, dt);
-
+    let nextT: number;
+    if (reducedMotion) {
+      nextT = targetT;
+      trackVelocityRef.current.velocity = 0;
+    } else {
+      nextT = smoothDamp(
+        prevT,
+        targetT,
+        trackVelocityRef.current,
+        FOLLOW_SMOOTH_TIME,
+        MAX_SPEED / curveLength,
+        dt,
+      );
+      // Posizione perfettamente stabile da fermi (nessun micro-movimento asintotico)
+      if (Math.abs(targetT - nextT) < 2e-6 && Math.abs(trackVelocityRef.current.velocity) < 1e-5) {
+        nextT = targetT;
+        trackVelocityRef.current.velocity = 0;
+      }
+    }
     smoothedTRef.current = nextT;
 
-    const deltaT = nextT - prevT;
-    const instantSpeed = (deltaT * curveLength) / dt;
-    speedRef.current = THREE.MathUtils.damp(speedRef.current, instantSpeed, 10, dt);
-    brakingRef.current = Math.abs(targetT - nextT) < 0.0022 || atStop;
+    // Cinematica misurata: distanza reale (m) -> velocità -> accelerazione. Con segno (retromarcia < 0).
+    const distance = (nextT - prevT) * curveLength;
+    const speed = distance / dt;
+    const accel = THREE.MathUtils.clamp((speed - speedRef.current) / dt, -25, 25);
+    speedRef.current = speed;
+    accelRef.current = accel;
 
-    const frame = getRoadFrameAtT(curve, nextT);
-    curve.getTangentAt(Math.min(0.996, nextT + 0.018), aheadTangentRef.current).normalize();
+    // Rotolamento ruote = distanza / raggio, cumulativo e continuo (inverte con la retromarcia, si ferma da fermo)
+    wheelRollRef.current += distance / WHEEL_RADIUS;
 
+    const frame = writeRoadFrame(curve, nextT, frameRef.current);
+
+    // Sterzo dalla curvatura reale della strada: delta = atan(L * curvatura)
+    curve.getTangentAt(Math.min(0.996, nextT + STEER_LOOKAHEAD / curveLength), aheadTangentRef.current);
     const aheadYaw = Math.atan2(aheadTangentRef.current.x, aheadTangentRef.current.z);
-    let deltaYaw = aheadYaw - frame.yaw;
-    while (deltaYaw > Math.PI) deltaYaw -= Math.PI * 2;
-    while (deltaYaw < -Math.PI) deltaYaw += Math.PI * 2;
+    const curvature = wrapAngle(aheadYaw - frame.yaw) / STEER_LOOKAHEAD;
+    steerRef.current = THREE.MathUtils.clamp(Math.atan(WHEELBASE * curvature), -0.5, 0.5);
 
-    steerRef.current = THREE.MathUtils.clamp(deltaYaw * 2.1, -0.42, 0.42);
+    // Velocità di imbardata per il rollio della scocca
+    yawRateRef.current = THREE.MathUtils.clamp(wrapAngle(frame.yaw - prevYawRef.current) / dt, -1.5, 1.5);
+    prevYawRef.current = frame.yaw;
+
+    brakingRef.current = atStop || (speed * accel < 0 && Math.abs(accel) > 1.2);
 
     carPositionRef.current.copy(frame.position);
     carYawRef.current = frame.yaw;
@@ -143,15 +188,22 @@ export default function JourneyController({
       <group ref={carGroupRef}>
         <RenaultCaptur
           speedRef={speedRef}
+          accelRef={accelRef}
+          yawRateRef={yawRateRef}
           steerRef={steerRef}
+          wheelRollRef={wheelRollRef}
           headlightPowerRef={headlightPowerRef}
           brakingRef={brakingRef}
           highlighted={activeStopId === "patenti" && atStop && selectedCategory === "b"}
           castShadows={!isMobile}
+          reducedMotion={reducedMotion}
         />
       </group>
 
       <CameraRig
+        curve={curve}
+        curveLength={curveLength}
+        trackRef={smoothedTRef}
         carPositionRef={carPositionRef}
         carYawRef={carYawRef}
         speedRef={speedRef}

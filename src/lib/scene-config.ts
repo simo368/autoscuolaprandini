@@ -72,42 +72,68 @@ const UP = new THREE.Vector3(0, 1, 0);
  * Il banking è azzerato automaticamente nelle zone delle fermate per mantenere
  * i veicoli perfettamente orizzontali nelle aree di sosta.
  */
-export function getRoadFrameAtT(curve: THREE.CatmullRomCurve3, t: number): RoadFrame {
+export function createRoadFrame(): RoadFrame {
+  return {
+    position: new THREE.Vector3(),
+    tangent: new THREE.Vector3(),
+    right: new THREE.Vector3(),
+    normal: new THREE.Vector3(),
+    yaw: 0,
+    pitch: 0,
+    bank: 0,
+  };
+}
+
+const STOP_TS = [0.035, 0.27, 0.39, 0.61, 0.77, 0.94];
+const _tanPrev = new THREE.Vector3();
+const _tanNext = new THREE.Vector3();
+const _baseRight = new THREE.Vector3();
+
+/**
+ * Versione senza allocazioni di `getRoadFrameAtT`: scrive il risultato in `out`.
+ * Usata nel loop di rendering (useFrame); la strada e le destinazioni usano la variante allocante.
+ */
+export function writeRoadFrame(
+  curve: THREE.CatmullRomCurve3,
+  t: number,
+  out: RoadFrame,
+): RoadFrame {
   const clamped = THREE.MathUtils.clamp(t, 0.002, 0.998);
-  const position = curve.getPointAt(clamped);
-  const tangent = curve.getTangentAt(clamped).normalize();
+  curve.getPointAt(clamped, out.position);
+  curve.getTangentAt(clamped, out.tangent).normalize();
 
   const dt = 0.012;
-  const tPrev = Math.max(0.001, clamped - dt);
-  const tNext = Math.min(0.999, clamped + dt);
-  const tanPrev = curve.getTangentAt(tPrev).normalize();
-  const tanNext = curve.getTangentAt(tNext).normalize();
+  curve.getTangentAt(Math.max(0.001, clamped - dt), _tanPrev).normalize();
+  curve.getTangentAt(Math.min(0.999, clamped + dt), _tanNext).normalize();
 
-  const yawPrev = Math.atan2(tanPrev.x, tanPrev.z);
-  const yawNext = Math.atan2(tanNext.x, tanNext.z);
+  const yawPrev = Math.atan2(_tanPrev.x, _tanPrev.z);
+  const yawNext = Math.atan2(_tanNext.x, _tanNext.z);
   let deltaYaw = yawNext - yawPrev;
   while (deltaYaw > Math.PI) deltaYaw -= Math.PI * 2;
   while (deltaYaw < -Math.PI) deltaYaw += Math.PI * 2;
 
   // Riduci il banking a zero vicino alle piazze di sosta e al ponte
-  const stopTs = [0.035, 0.27, 0.39, 0.61, 0.77, 0.94];
   let stopDamp = 1;
-  for (const st of stopTs) {
-    const dist = Math.abs(clamped - st);
+  for (let i = 0; i < STOP_TS.length; i++) {
+    const dist = Math.abs(clamped - STOP_TS[i]);
     if (dist < 0.055) {
       stopDamp = Math.min(stopDamp, THREE.MathUtils.smoothstep(dist, 0.018, 0.055));
     }
   }
 
   const bank = THREE.MathUtils.clamp(-deltaYaw * 0.22, -0.05, 0.05) * stopDamp;
-  const baseRight = new THREE.Vector3().crossVectors(tangent, UP).normalize();
-  const right = baseRight.clone().applyAxisAngle(tangent, bank).normalize();
-  const normal = new THREE.Vector3().crossVectors(right, tangent).normalize();
+  _baseRight.crossVectors(out.tangent, UP).normalize();
+  out.right.copy(_baseRight).applyAxisAngle(out.tangent, bank).normalize();
+  out.normal.crossVectors(out.right, out.tangent).normalize();
 
-  const yaw = Math.atan2(tangent.x, tangent.z);
-  const pitch = -Math.asin(THREE.MathUtils.clamp(tangent.y, -0.45, 0.45));
+  out.yaw = Math.atan2(out.tangent.x, out.tangent.z);
+  out.pitch = -Math.asin(THREE.MathUtils.clamp(out.tangent.y, -0.45, 0.45));
+  out.bank = bank;
+  return out;
+}
 
-  return { position, tangent, right, normal, yaw, pitch, bank };
+export function getRoadFrameAtT(curve: THREE.CatmullRomCurve3, t: number): RoadFrame {
+  return writeRoadFrame(curve, t, createRoadFrame());
 }
 
 /** Larghezza variabile della carreggiata: si apre con naturalezza in prossimità di rotatoria e fermate. */
@@ -211,6 +237,7 @@ const BLUE_HOUR_HORIZON = new THREE.Color("#B8CCD4");
 const EARLY_MORN_HORIZON = new THREE.Color("#E5DCD0");
 const GOLDEN_MORN_HORIZON = new THREE.Color("#F3EAD9");
 
+const HEMI_SKY_TINT = new THREE.Color("#FAFAF7");
 const HEMI_GROUND_BLUE = new THREE.Color("#525E53");
 const HEMI_GROUND_GOLD = new THREE.Color("#9A8D73");
 
@@ -238,7 +265,7 @@ export function evaluateAtmosphere(trackT: number, target: AtmosphereState): Atm
   target.sunIntensity = THREE.MathUtils.lerp(1.15, 2.85, Math.pow(t, 0.85));
   target.sunElevation = THREE.MathUtils.lerp(7, 24, t);
   target.ambientIntensity = THREE.MathUtils.lerp(0.85, 1.38, t);
-  target.hemiSky.copy(target.skyHorizon).lerp(new THREE.Color("#FAFAF7"), 0.35);
+  target.hemiSky.copy(target.skyHorizon).lerp(HEMI_SKY_TINT, 0.35);
   target.hemiGround.lerpColors(HEMI_GROUND_BLUE, HEMI_GROUND_GOLD, t);
   target.headlightPower = THREE.MathUtils.lerp(0.9, 0.25, THREE.MathUtils.smoothstep(t, 0.08, 0.72));
   target.dawnMix = t;

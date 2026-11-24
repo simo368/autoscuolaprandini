@@ -5,9 +5,14 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { JourneyStopId } from "@/data/journey";
 import type { LicenceCategoryId } from "@/data/services";
+import { dampAngle, smoothDamp, smoothDampVec3, type SmoothState } from "@/lib/motion";
 import { stopCameraPresets } from "@/lib/scene-config";
 
 interface CameraRigProps {
+  curve: THREE.CatmullRomCurve3;
+  curveLength: number;
+  /** Posizione lisciata del veicolo lungo la spline (unica fonte autorevole). */
+  trackRef: React.RefObject<number>;
   carPositionRef: React.RefObject<THREE.Vector3>;
   carYawRef: React.RefObject<number>;
   speedRef: React.RefObject<number>;
@@ -20,8 +25,13 @@ interface CameraRigProps {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+/** Distanza (m) davanti all'auto su cui il telecamera anticipa le curve. */
+const ANTICIPATION_DISTANCE = 12;
 
 export default function CameraRig({
+  curve,
+  curveLength,
+  trackRef,
   carPositionRef,
   carYawRef,
   speedRef,
@@ -33,31 +43,49 @@ export default function CameraRig({
   reducedMotion,
 }: CameraRigProps) {
   const initializedRef = useRef(false);
-  const currentPosRef = useRef(new THREE.Vector3(3.6, 2.5, 200));
-  const currentLookRef = useRef(new THREE.Vector3(0, 1.5, 194));
+  const modeRef = useRef<"driving" | "stop">("driving");
+  const headingRef = useRef(Math.PI);
+  const blendRef = useRef(1);
+  const fovRef = useRef(40);
+  const fovStateRef = useRef<SmoothState>({ velocity: 0 });
 
-  const scratchRef = useRef({
+  // Oggetti riutilizzati nel loop (nessuna allocazione per frame)
+  const scratch = useRef({
+    pos: new THREE.Vector3(3.6, 2.5, 200),
+    vel: new THREE.Vector3(),
     desiredPos: new THREE.Vector3(),
-    desiredLook: new THREE.Vector3(),
+    localLook: new THREE.Vector3(),
+    splineLook: new THREE.Vector3(),
+    look: new THREE.Vector3(),
     offset: new THREE.Vector3(),
     lookOffset: new THREE.Vector3(),
+    aheadPoint: new THREE.Vector3(),
+    aheadTangent: new THREE.Vector3(),
+    forward: new THREE.Vector3(),
+    matrix: new THREE.Matrix4(),
+    targetQuat: new THREE.Quaternion(),
   });
 
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.05);
-    const carPos = carPositionRef.current;
-    const yaw = carYawRef.current ?? Math.PI;
-    const speed = Math.abs(speedRef.current ?? 0);
-    const steer = steerRef.current ?? 0;
-    const scratch = scratchRef.current;
+    const s = scratch.current;
     const camera = state.camera;
+    const carPos = carPositionRef.current;
+    const carYaw = carYawRef.current ?? Math.PI;
+    const speed = speedRef.current ?? 0;
+    const absSpeed = Math.abs(speed);
+    const t = trackRef.current ?? 0;
 
-    const presetKey: JourneyStopId | "driving" =
-      activeStopId === "intro" && atStop
-        ? "intro"
-        : atStop && speed < 1.8
-          ? activeStopId
-          : "driving";
+    // Modalità con isteresi: nessuno sfarfallio tra inquadratura di guida e di sosta
+    if (!atStop) {
+      modeRef.current = "driving";
+    } else if (modeRef.current === "driving" && absSpeed < 1.2) {
+      modeRef.current = "stop";
+    } else if (modeRef.current === "stop" && absSpeed > 3) {
+      modeRef.current = "driving";
+    }
+    const driving = modeRef.current === "driving";
+    const presetKey: JourneyStopId | "driving" = driving ? "driving" : activeStopId;
 
     const preset = stopCameraPresets[presetKey];
     const aspect = state.size.width / Math.max(1, state.size.height);
@@ -75,94 +103,99 @@ export default function CameraRig({
       targetFov = Math.max(38, preset.fovDesktop - 2);
     }
 
-    scratch.offset.set(rawOffset[0], rawOffset[1], rawOffset[2]);
-    scratch.lookOffset.set(rawLook[0], rawLook[1], rawLook[2]);
+    s.offset.set(rawOffset[0], rawOffset[1], rawOffset[2]);
+    s.lookOffset.set(rawLook[0], rawLook[1], rawLook[2]);
 
-    // Anticipazione cinematografica nelle curve: la camera guarda dentro la curva
-    // e si apre leggermente sul fianco esterno per mostrare il paesaggio
-    if (presetKey === "driving") {
-      scratch.lookOffset.x += steer * 5.2;
-      scratch.offset.x -= steer * 2.4;
+    // Leggero spostamento laterale in curva (la camera si apre verso l'esterno della curva)
+    const steerNorm = THREE.MathUtils.clamp((steerRef.current ?? 0) / 0.08, -1, 1);
+    if (driving) {
+      s.offset.x -= steerNorm * 1.4;
     }
 
     // Inquadratura dedicata allo Stop 01 in base al veicolo selezionato (AM / A / B)
     if (presetKey === "patenti") {
       if (selectedCategory === "am") {
-        scratch.offset.x -= 0.7;
-        scratch.lookOffset.x += 1.35;
-        scratch.lookOffset.z += 0.25;
+        s.offset.x -= 0.7;
+        s.lookOffset.x += 1.35;
+        s.lookOffset.z += 0.25;
       } else if (selectedCategory === "a") {
-        scratch.offset.x -= 1.0;
-        scratch.offset.z += 1.05;
-        scratch.lookOffset.x += 1.95;
-        scratch.lookOffset.z += 1.1;
+        s.offset.x -= 1.0;
+        s.offset.z += 1.05;
+        s.lookOffset.x += 1.95;
+        s.lookOffset.z += 1.1;
       }
     }
 
-    scratch.offset.applyAxisAngle(UP, yaw);
-    scratch.lookOffset.applyAxisAngle(UP, yaw);
-
-    scratch.desiredPos.copy(carPos).add(scratch.offset);
-    scratch.desiredLook.copy(carPos).add(scratch.lookOffset);
-
-    if (!initializedRef.current || reducedMotion) {
-      currentPosRef.current.copy(scratch.desiredPos);
-      currentLookRef.current.copy(scratch.desiredLook);
-      initializedRef.current = true;
-    } else {
-      const damping = presetKey === "driving" ? 4.4 : 3.0;
-      currentPosRef.current.x = THREE.MathUtils.damp(
-        currentPosRef.current.x,
-        scratch.desiredPos.x,
-        damping,
-        dt,
-      );
-      currentPosRef.current.y = THREE.MathUtils.damp(
-        currentPosRef.current.y,
-        scratch.desiredPos.y,
-        damping,
-        dt,
-      );
-      currentPosRef.current.z = THREE.MathUtils.damp(
-        currentPosRef.current.z,
-        scratch.desiredPos.z,
-        damping,
-        dt,
-      );
-
-      currentLookRef.current.x = THREE.MathUtils.damp(
-        currentLookRef.current.x,
-        scratch.desiredLook.x,
-        damping + 0.9,
-        dt,
-      );
-      currentLookRef.current.y = THREE.MathUtils.damp(
-        currentLookRef.current.y,
-        scratch.desiredLook.y,
-        damping + 0.9,
-        dt,
-      );
-      currentLookRef.current.z = THREE.MathUtils.damp(
-        currentLookRef.current.z,
-        scratch.desiredLook.z,
-        damping + 0.9,
-        dt,
-      );
+    // Orientamento della ripresa: in guida anticipa la direzione della strada davanti all'auto
+    let targetHeading = carYaw;
+    if (driving) {
+      const aheadT = THREE.MathUtils.clamp(t + ANTICIPATION_DISTANCE / curveLength, 0.002, 0.996);
+      curve.getTangentAt(aheadT, s.aheadTangent);
+      targetHeading = Math.atan2(s.aheadTangent.x, s.aheadTangent.z);
     }
 
-    camera.position.copy(currentPosRef.current);
-    camera.lookAt(currentLookRef.current);
+    const snap = !initializedRef.current || reducedMotion;
+    if (snap) {
+      headingRef.current = targetHeading;
+      blendRef.current = driving ? 1 : 0;
+    } else {
+      headingRef.current = dampAngle(headingRef.current, targetHeading, driving ? 3.4 : 2.6, dt);
+      blendRef.current = THREE.MathUtils.damp(blendRef.current, driving ? 1 : 0, 3.2, dt);
+    }
+    const heading = headingRef.current;
 
+    // Posizione desiderata nello spazio dell'auto, ruotata dalla direzione di ripresa
+    s.desiredPos.copy(s.offset).applyAxisAngle(UP, heading).add(carPos);
+
+    // Compensazione del ritardo della molla: la camera "anticipa" la velocità, inquadratura stabile
+    if (driving && !snap) {
+      s.forward.set(Math.sin(heading), 0, Math.cos(heading));
+      s.desiredPos.addScaledVector(s.forward, speed * 0.2);
+    }
+
+    // Bersaglio dello sguardo: punto locale al veicolo (soste) o punto avanzato sulla spline (guida)
+    s.localLook.copy(s.lookOffset).applyAxisAngle(UP, heading).add(carPos);
+
+    const lookAheadT = THREE.MathUtils.clamp(t + Math.max(4, s.lookOffset.z) / curveLength, 0.002, 0.996);
+    curve.getPointAt(lookAheadT, s.aheadPoint);
+    s.splineLook.set(s.lookOffset.x, 0, 0).applyAxisAngle(UP, heading).add(s.aheadPoint);
+    s.splineLook.y += s.lookOffset.y;
+
+    s.look.copy(s.localLook).lerp(s.splineLook, blendRef.current);
+
+    // Posizione: molla critica unica (velocità continua, nessuna vibrazione)
+    if (snap) {
+      s.pos.copy(s.desiredPos);
+      s.vel.set(0, 0, 0);
+    } else {
+      smoothDampVec3(s.pos, s.desiredPos, s.vel, driving ? 0.2 : 0.55, dt);
+    }
+    camera.position.copy(s.pos);
+
+    // Orientamento: slerp di quaternioni verso la direzione di sguardo (mai salti di rotazione)
+    s.matrix.lookAt(s.pos, s.look, UP);
+    s.targetQuat.setFromRotationMatrix(s.matrix);
+    if (snap) {
+      camera.quaternion.copy(s.targetQuat);
+    } else {
+      camera.quaternion.slerp(s.targetQuat, 1 - Math.exp(-(driving ? 8 : 5.5) * dt));
+    }
+
+    // Campo visivo: cambia solo tra preset, lentamente (nessun effetto "zoom di velocità")
     if (camera instanceof THREE.PerspectiveCamera) {
-      const speedFovBoost = presetKey === "driving" ? Math.min(3.2, speed * 0.14) : 0;
-      const desiredFov = targetFov + speedFovBoost;
-      if (Math.abs(camera.fov - desiredFov) > 0.05) {
-        camera.fov = reducedMotion
-          ? desiredFov
-          : THREE.MathUtils.damp(camera.fov, desiredFov, 4, dt);
+      if (snap) {
+        fovRef.current = targetFov;
+        fovStateRef.current.velocity = 0;
+      } else {
+        fovRef.current = smoothDamp(fovRef.current, targetFov, fovStateRef.current, 0.7, 40, dt);
+      }
+      if (Math.abs(camera.fov - fovRef.current) > 0.01) {
+        camera.fov = fovRef.current;
         camera.updateProjectionMatrix();
       }
     }
+
+    initializedRef.current = true;
   });
 
   return null;
