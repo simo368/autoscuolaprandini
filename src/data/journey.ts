@@ -29,7 +29,7 @@ export const journeyChapters: JourneyChapter[] = [
     scrollEnd: 0.12,
     scrollTarget: 0,
     stopPlateauStart: 0,
-    stopPlateauEnd: 0.05,
+    stopPlateauEnd: 0.04,
     trackT: 0.035,
   },
   {
@@ -39,10 +39,10 @@ export const journeyChapters: JourneyChapter[] = [
     shortLabel: "Patenti",
     phaseLabel: "PRIMA MATTINA · ROTATORIA",
     scrollStart: 0.12,
-    scrollEnd: 0.41,
-    scrollTarget: 0.28,
+    scrollEnd: 0.45,
+    scrollTarget: 0.245,
     stopPlateauStart: 0.2,
-    stopPlateauEnd: 0.36,
+    stopPlateauEnd: 0.29,
     trackT: 0.39,
   },
   {
@@ -51,11 +51,11 @@ export const journeyChapters: JourneyChapter[] = [
     navLabel: "Rinnovo patenti",
     shortLabel: "Rinnovo",
     phaseLabel: "LUCE CALDA · PADIGLIONE",
-    scrollStart: 0.41,
-    scrollEnd: 0.66,
-    scrollTarget: 0.54,
-    stopPlateauStart: 0.48,
-    stopPlateauEnd: 0.61,
+    scrollStart: 0.45,
+    scrollEnd: 0.7,
+    scrollTarget: 0.495,
+    stopPlateauStart: 0.45,
+    stopPlateauEnd: 0.54,
     trackT: 0.61,
   },
   {
@@ -64,11 +64,11 @@ export const journeyChapters: JourneyChapter[] = [
     navLabel: "Recupero punti",
     shortLabel: "Punti",
     phaseLabel: "MATTINO D'ORO · SEGNALETICA",
-    scrollStart: 0.66,
-    scrollEnd: 0.88,
-    scrollTarget: 0.77,
-    stopPlateauStart: 0.72,
-    stopPlateauEnd: 0.83,
+    scrollStart: 0.7,
+    scrollEnd: 0.95,
+    scrollTarget: 0.745,
+    stopPlateauStart: 0.7,
+    stopPlateauEnd: 0.79,
     trackT: 0.77,
   },
   {
@@ -77,10 +77,10 @@ export const journeyChapters: JourneyChapter[] = [
     navLabel: "Contatti",
     shortLabel: "Cavezzo",
     phaseLabel: "SOLE DEL MATTINO · CAVEZZO",
-    scrollStart: 0.88,
+    scrollStart: 0.95,
     scrollEnd: 1,
-    scrollTarget: 0.96,
-    stopPlateauStart: 0.92,
+    scrollTarget: 0.975,
+    stopPlateauStart: 0.95,
     stopPlateauEnd: 1,
     trackT: 0.94,
   },
@@ -91,58 +91,58 @@ function easeInOutCubic(t: number): number {
 }
 
 /**
- * Converte il progresso dello scroll [0..1] nella posizione lungo la strada panoramica a 8 segmenti,
- * garantendo accelerazioni progressive, percorrenza fluida di curve/ponti e soste stabili alle destinazioni.
+ * Converte il progresso dello scroll [0..1] nella posizione lungo la strada panoramica,
+ * con tratti di guida equilibrati (16% ciascuno) e soste stabili alle destinazioni (9%).
  */
 export function mapScrollToTrackProgress(scroll: number): number {
   const s = Math.max(0, Math.min(1, scroll));
 
-  // Intro: partenza dolce lungo il viale iniziale (0.02 -> 0.035)
-  if (s <= 0.05) {
-    const local = easeInOutCubic(s / 0.05);
+  // Intro: 0.00 - 0.04 (0.02 -> 0.035)
+  if (s <= 0.04) {
+    const local = easeInOutCubic(s / 0.04);
     return 0.02 + local * 0.015;
   }
 
-  // Segmenti 1-4: partenza -> prima grande curva -> S-curve sul ponte -> rotatoria Le Patenti (0.035 -> 0.39)
+  // Driving to Patenti: 0.04 - 0.20 (0.035 -> 0.39)
   if (s <= 0.2) {
-    const local = easeInOutCubic((s - 0.05) / 0.15);
+    const local = easeInOutCubic((s - 0.04) / 0.16);
     return 0.035 + local * 0.355;
   }
 
-  // Sosta Stop 01 — Le Patenti
-  if (s <= 0.36) {
+  // Patenti stop: 0.20 - 0.29
+  if (s <= 0.29) {
     return 0.39;
   }
 
-  // Segmenti 5-6: discesa panoramica nella campagna -> padiglione Rinnovo Patenti (0.39 -> 0.61)
-  if (s <= 0.48) {
-    const local = easeInOutCubic((s - 0.36) / 0.12);
+  // Driving to Rinnovo: 0.29 - 0.45 (0.39 -> 0.61)
+  if (s <= 0.45) {
+    const local = easeInOutCubic((s - 0.29) / 0.16);
     return 0.39 + local * 0.22;
   }
 
-  // Sosta Stop 02 — Rinnovo Patenti
-  if (s <= 0.61) {
+  // Rinnovo stop: 0.45 - 0.54
+  if (s <= 0.54) {
     return 0.61;
   }
 
-  // Segmento 7: curva verso area segnaletica Recupero Punti (0.61 -> 0.77)
-  if (s <= 0.72) {
-    const local = easeInOutCubic((s - 0.61) / 0.11);
+  // Driving to Recupero Punti: 0.54 - 0.70 (0.61 -> 0.77)
+  if (s <= 0.7) {
+    const local = easeInOutCubic((s - 0.54) / 0.16);
     return 0.61 + local * 0.16;
   }
 
-  // Sosta Stop 03 — Recupero Punti
-  if (s <= 0.83) {
+  // Recupero Punti stop: 0.70 - 0.79
+  if (s <= 0.79) {
     return 0.77;
   }
 
-  // Segmento 8: ampia curva dorata verso la destinazione finale Cavezzo (0.77 -> 0.94)
-  if (s <= 0.92) {
-    const local = easeInOutCubic((s - 0.83) / 0.09);
+  // Driving to Cavezzo: 0.79 - 0.95 (0.77 -> 0.94)
+  if (s <= 0.95) {
+    const local = easeInOutCubic((s - 0.79) / 0.16);
     return 0.77 + local * 0.17;
   }
 
-  // Sosta Destinazione Finale — Cavezzo
+  // Final destination (Cavezzo): 0.95 - 1.00
   return 0.94;
 }
 
@@ -157,5 +157,5 @@ export function getActiveChapterForScroll(scroll: number): JourneyChapter {
 }
 
 export function isAtStopPlateau(scroll: number, chapter: JourneyChapter): boolean {
-  return scroll >= chapter.stopPlateauStart - 0.015 && scroll <= chapter.stopPlateauEnd + 0.015;
+  return scroll >= chapter.stopPlateauStart - 0.008 && scroll <= chapter.stopPlateauEnd + 0.008;
 }

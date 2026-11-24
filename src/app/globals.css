@@ -65,7 +65,7 @@ a:focus-visible {
 
 .journey-scroll-track {
   position: relative;
-  height: 680vh;
+  height: 1200svh;
   touch-action: pan-y;
 }
 
@@ -1214,7 +1214,7 @@ a:focus-visible {
 
 @media (max-width: 767px) {
   .journey-scroll-track {
-    height: 580vh;
+    height: 1250svh;
   }
 
   .cinematic-vignette {

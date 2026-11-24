@@ -27,9 +27,9 @@ interface JourneyControllerProps {
 }
 
 /** Tempo di risposta del veicolo allo scroll (s): velocità continua, nessun colpo di avvio. */
-const FOLLOW_SMOOTH_TIME = 0.24;
+const FOLLOW_SMOOTH_TIME = 0.22;
 /** Velocità massima del veicolo (m/s): evita "teletrasporti" quando si salta tra tappe dal menu. */
-const MAX_SPEED = 30;
+const MAX_SPEED = 32;
 /** Distanza di osservazione per calcolare la curvatura e quindi lo sterzo (m). */
 const STEER_LOOKAHEAD = 6;
 
