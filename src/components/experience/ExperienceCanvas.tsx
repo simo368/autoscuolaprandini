@@ -2,7 +2,7 @@
 
 import { Component, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
-import { PerformanceMonitor } from "@react-three/drei";
+import { PerformanceMonitor, useProgress } from "@react-three/drei";
 import * as THREE from "three";
 import type { JourneyStopId } from "@/data/journey";
 import type { LicenceCategoryId } from "@/data/services";
@@ -57,6 +57,16 @@ function AdaptiveQuality({ maxDpr }: { maxDpr: number }) {
   );
 }
 
+function AssetProgressBridge({ onLoadProgress }: { onLoadProgress: (percent: number) => void }) {
+  const { progress } = useProgress();
+  useEffect(() => {
+    if (progress > 0) {
+      onLoadProgress(Math.min(90, Math.round(15 + progress * 0.65)));
+    }
+  }, [progress, onLoadProgress]);
+  return null;
+}
+
 export default function ExperienceCanvas({
   trackProgressRef,
   activeStopId,
@@ -91,7 +101,7 @@ export default function ExperienceCanvas({
   const dprRange: [number, number] = isSmallMobile
     ? [1, 1.25]
     : isMobile
-      ? [1, 1.45]
+      ? [1, 1.4]
       : [1, 2];
 
   return (
@@ -101,12 +111,12 @@ export default function ExperienceCanvas({
           frameloop={isPageVisible ? "always" : "never"}
           shadows={!isMobile}
           dpr={dprRange}
-          camera={{ position: [3.6, 2.5, 200], fov: isMobile ? 50 : 39, near: 0.25, far: 650 }}
+          camera={{ position: [3.2, 1.48, 150], fov: isMobile ? 46 : 36, near: 0.25, far: 650 }}
           gl={{
             antialias: !isSmallMobile,
             powerPreference: "high-performance",
             toneMapping: THREE.ACESFilmicToneMapping,
-            toneMappingExposure: 1.08,
+            toneMappingExposure: 1.12,
           }}
           onCreated={({ gl }) => {
             gl.domElement.addEventListener(
@@ -119,6 +129,7 @@ export default function ExperienceCanvas({
             );
           }}
         >
+          <AssetProgressBridge onLoadProgress={onLoadProgress} />
           <Suspense fallback={null}>
             <AdaptiveQuality maxDpr={dprRange[1]} />
             <JourneyController

@@ -161,13 +161,14 @@ export interface CameraPreset {
 
 export const stopCameraPresets: Record<JourneyStopId | "driving", CameraPreset> = {
   intro: {
-    offsetDesktop: [3.6, 1.75, 5.8],
-    // Ritratto 9:16: distanza leggermente più ampia e sguardo più basso per tenere la Captur nella zona centrale alta
-    offsetMobile: [2.3, 2.15, 7.6],
-    lookDesktop: [-0.9, 0.85, 0.5],
-    lookMobile: [0.1, 0.1, 0.3],
-    fovDesktop: 39,
-    fovMobile: 50,
+    // Visuale hero a tre quarti leggermente frontale: protagonista al centro-destra, titoli a sinistra liberi
+    offsetDesktop: [3.2, 1.48, 4.95],
+    // Ritratto 9:16: distanza equilibrata per tenere la Captur nella metà superiore sopra la card
+    offsetMobile: [2.35, 1.72, 6.2],
+    lookDesktop: [-0.85, 0.72, 0.25],
+    lookMobile: [0.05, 0.12, 0.2],
+    fovDesktop: 36,
+    fovMobile: 46,
   },
   driving: {
     offsetDesktop: [1.75, 2.35, -6.8],
@@ -228,47 +229,48 @@ export interface AtmosphereState {
   dawnMix: number;
 }
 
-// 3 fasi cromatiche luminose e naturali: Blue Hour -> Early Morning -> Golden Morning
-const BLUE_HOUR_TOP = new THREE.Color("#4B6A82");
-const EARLY_MORN_TOP = new THREE.Color("#7FA3BC");
+// 3 fasi cromatiche cinematografiche: Studio Ora Blu scura (Hero) -> Prima Mattina -> Mattino d'Oro
+const BLUE_HOUR_TOP = new THREE.Color("#0B111A");
+const EARLY_MORN_TOP = new THREE.Color("#6E93AE");
 const GOLDEN_MORN_TOP = new THREE.Color("#7DA8C8");
 
-const BLUE_HOUR_HORIZON = new THREE.Color("#B8CCD4");
-const EARLY_MORN_HORIZON = new THREE.Color("#E5DCD0");
+const BLUE_HOUR_HORIZON = new THREE.Color("#182534");
+const EARLY_MORN_HORIZON = new THREE.Color("#DFD7CB");
 const GOLDEN_MORN_HORIZON = new THREE.Color("#F3EAD9");
 
 const HEMI_SKY_TINT = new THREE.Color("#FAFAF7");
-const HEMI_GROUND_BLUE = new THREE.Color("#525E53");
+const HEMI_GROUND_BLUE = new THREE.Color("#1B242C");
 const HEMI_GROUND_GOLD = new THREE.Color("#9A8D73");
 
-const SUN_BLUE_HOUR = new THREE.Color("#C7DCEE");
+const SUN_BLUE_HOUR = new THREE.Color("#9EC0DE");
 const SUN_EARLY_MORN = new THREE.Color("#FFE0B2");
 const SUN_GOLDEN_MORN = new THREE.Color("#FFE8BE");
 
 export function evaluateAtmosphere(trackT: number, target: AtmosphereState): AtmosphereState {
   const t = THREE.MathUtils.clamp(trackT, 0, 1);
 
-  if (t < 0.42) {
-    const k = THREE.MathUtils.smoothstep(t, 0, 0.42);
+  if (t < 0.45) {
+    const k = THREE.MathUtils.smoothstep(t, 0.11, 0.45);
     target.skyTop.lerpColors(BLUE_HOUR_TOP, EARLY_MORN_TOP, k);
     target.skyHorizon.lerpColors(BLUE_HOUR_HORIZON, EARLY_MORN_HORIZON, k);
     target.sunColor.lerpColors(SUN_BLUE_HOUR, SUN_EARLY_MORN, k);
   } else {
-    const k = THREE.MathUtils.smoothstep(t, 0.42, 1.0);
+    const k = THREE.MathUtils.smoothstep(t, 0.45, 1.0);
     target.skyTop.lerpColors(EARLY_MORN_TOP, GOLDEN_MORN_TOP, k);
     target.skyHorizon.lerpColors(EARLY_MORN_HORIZON, GOLDEN_MORN_HORIZON, k);
     target.sunColor.lerpColors(SUN_EARLY_MORN, SUN_GOLDEN_MORN, k);
   }
 
+  const dawnProgress = THREE.MathUtils.smoothstep(t, 0.11, 0.96);
   target.fogColor.copy(target.skyHorizon);
-  target.fogDensity = THREE.MathUtils.lerp(0.0052, 0.0032, t);
-  target.sunIntensity = THREE.MathUtils.lerp(1.15, 2.85, Math.pow(t, 0.85));
-  target.sunElevation = THREE.MathUtils.lerp(7, 24, t);
-  target.ambientIntensity = THREE.MathUtils.lerp(0.85, 1.38, t);
+  target.fogDensity = THREE.MathUtils.lerp(0.0058, 0.0032, dawnProgress);
+  target.sunIntensity = THREE.MathUtils.lerp(1.45, 2.85, Math.pow(dawnProgress, 0.85));
+  target.sunElevation = THREE.MathUtils.lerp(8, 24, dawnProgress);
+  target.ambientIntensity = THREE.MathUtils.lerp(0.68, 1.35, dawnProgress);
   target.hemiSky.copy(target.skyHorizon).lerp(HEMI_SKY_TINT, 0.35);
-  target.hemiGround.lerpColors(HEMI_GROUND_BLUE, HEMI_GROUND_GOLD, t);
-  target.headlightPower = THREE.MathUtils.lerp(0.9, 0.25, THREE.MathUtils.smoothstep(t, 0.08, 0.72));
-  target.dawnMix = t;
+  target.hemiGround.lerpColors(HEMI_GROUND_BLUE, HEMI_GROUND_GOLD, dawnProgress);
+  target.headlightPower = THREE.MathUtils.lerp(1.0, 0.25, THREE.MathUtils.smoothstep(t, 0.14, 0.72));
+  target.dawnMix = dawnProgress;
 
   return target;
 }

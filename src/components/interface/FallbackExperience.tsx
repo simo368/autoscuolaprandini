@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { businessConfig, carConfig, getWhatsAppHref } from "@/data/configuration";
+import { businessConfig, carConfig, getWhatsAppHref, modelAttribution } from "@/data/configuration";
 import {
   licenceCategories,
   recuperoPuntiService,
@@ -129,6 +129,24 @@ export default function FallbackExperience() {
           </a>
         </div>
       </section>
+
+      <footer className="fallback-footer">
+        <p className="contact-model-credit">
+          3D model:{" "}
+          <a href={modelAttribution.modelUrl} target="_blank" rel="noreferrer">
+            {modelAttribution.modelTitle}
+          </a>{" "}
+          by{" "}
+          <a href={modelAttribution.authorUrl} target="_blank" rel="noreferrer">
+            {modelAttribution.authorName}
+          </a>
+          , licensed under{" "}
+          <a href={modelAttribution.licenseUrl} target="_blank" rel="noreferrer">
+            {modelAttribution.licenseLabel}
+          </a>
+          .
+        </p>
+      </footer>
     </main>
   );
 }

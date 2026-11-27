@@ -15,8 +15,19 @@ export interface CarConfiguration {
   trimColor: string;
   /** Eventuale URL a un asset GLB/GLTF reale con licenza per sostituire il modello procedurale. */
   customModelUrl?: string;
+  /** Variante GLB alleggerita per dispositivi mobile. */
+  mobileModelUrl?: string;
   /** Identità discreta da autoscuola sul tetto del veicolo. */
   schoolSignText: string;
+}
+
+export interface ModelAttribution {
+  modelTitle: string;
+  modelUrl: string;
+  authorName: string;
+  authorUrl: string;
+  licenseLabel: string;
+  licenseUrl: string;
 }
 
 export interface BusinessConfiguration {
@@ -52,8 +63,18 @@ export const carConfig: CarConfiguration = {
   paintColor: envPaintColor && /^#[0-9a-fA-F]{6}$/.test(envPaintColor) ? envPaintColor : "#C3CCD3",
   roofColor: "#1E282E",
   trimColor: "#E4EAEE",
-  customModelUrl: undefined,
+  customModelUrl: "/models/renault-captur-2025.glb",
+  mobileModelUrl: "/models/renault-captur-2025-mobile.glb",
   schoolSignText: "AUTOSCUOLA",
+};
+
+export const modelAttribution: ModelAttribution = {
+  modelTitle: "2025 Renault Captur",
+  modelUrl: "https://sketchfab.com/3d-models/2025-renault-captur-3fe3f58932cf46bd8cfb4437187b287f",
+  authorName: "tonielpro520",
+  authorUrl: "https://sketchfab.com/tonielpro520",
+  licenseLabel: "CC BY 4.0",
+  licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
 };
 
 export const businessConfig: BusinessConfiguration = {

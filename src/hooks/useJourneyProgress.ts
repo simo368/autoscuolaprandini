@@ -11,20 +11,19 @@ import {
   type JourneyStopId,
 } from "@/data/journey";
 
-const STOP_HOLD_MS = 3000;
-const HOLD_STOPS: ReadonlySet<JourneyStopId> = new Set(["patenti", "rinnovo", "punti"]);
-
 export interface JourneyProgressState {
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   scrollYProgress: ReturnType<typeof useScroll>["scrollYProgress"];
   activeChapter: JourneyChapter;
   atStop: boolean;
-  /** Secondi rimanenti della sosta obbligatoria (3, 2, 1) oppure 0 quando lo scroll è libero. */
+  /** Mantenuto per compatibilità UI; lo scroll è sempre libero e controllabile. */
   holdSeconds: number;
   trackProgressRef: React.RefObject<number>;
   scrollProgressRef: React.RefObject<number>;
   jumpToStop: (stopId: JourneyStopId, reducedMotion?: boolean) => void;
 }
+
+const MAX_WHEEL_STEP_PX = 92;
 
 export function useJourneyProgress(): JourneyProgressState {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -33,15 +32,6 @@ export function useJourneyProgress(): JourneyProgressState {
 
   const [activeChapter, setActiveChapter] = useState<JourneyChapter>(journeyChapters[0]);
   const [atStop, setAtStop] = useState<boolean>(true);
-  const [holdSeconds, setHoldSeconds] = useState<number>(0);
-
-  const heldStopRef = useRef<{
-    id: JourneyStopId;
-    until: number;
-    lockNormalized: number;
-  } | null>(null);
-  const bypassHoldRef = useRef<boolean>(false);
-  const armedStopsRef = useRef<Set<JourneyStopId>>(new Set(["patenti", "rinnovo", "punti"]));
 
   const { scrollYProgress } = useScroll({
     target: scrollContainerRef,
@@ -56,102 +46,68 @@ export function useJourneyProgress(): JourneyProgressState {
     return containerTop + normalized * maxScroll;
   }, []);
 
-  const clearHold = useCallback(() => {
-    heldStopRef.current = null;
-    setHoldSeconds(0);
-  }, []);
-
-  // Blocca lo scroll in avanti (rotellina / touch momentum) durante i 3 secondi di sosta
+  // Ricalibrazione deterministica della rotellina:
+  // riduce la distanza per singolo scatto, comprime i picchi improvvisi ed elimina accelerazioni
+  // che porterebbero troppo avanti o in fondo al sito, mantenendo la progressione fluida e reversibile.
   useEffect(() => {
     const handleWheel = (event: WheelEvent) => {
-      const held = heldStopRef.current;
-      if (!held) return;
-      if (performance.now() >= held.until) {
-        clearHold();
+      if (event.ctrlKey || event.metaKey) return;
+      if (Math.abs(event.deltaY) < 0.01) return;
+
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest(
+          ".fullscreen-menu, .mobile-menu-sheet, .mobile-details-drawer, [role='dialog']",
+        )
+      ) {
         return;
       }
-      if (event.deltaY > 0) {
-        event.preventDefault();
+
+      // Se esiste un elemento scrollabile interno sotto il cursore, non interferire
+      let node = target;
+      while (node && node !== document.body) {
+        const style = window.getComputedStyle(node);
+        const overflowY = style.overflowY;
+        if (
+          (overflowY === "auto" || overflowY === "scroll") &&
+          node.scrollHeight > node.clientHeight + 2
+        ) {
+          return;
+        }
+        node = node.parentElement;
       }
+
+      event.preventDefault();
+
+      let rawDelta = event.deltaY;
+      if (event.deltaMode === 1) {
+        rawDelta *= 32;
+      } else if (event.deltaMode === 2) {
+        rawDelta *= window.innerHeight * 0.55;
+      }
+
+      const abs = Math.abs(rawDelta);
+      // Sensibilità controllata: ~0.55x sui micro-movimenti e compressione progressiva sui colpi veloci
+      const calibrated =
+        abs <= 65
+          ? abs * 0.55
+          : 35.75 + Math.min(MAX_WHEEL_STEP_PX - 35.75, (abs - 65) * 0.24);
+      const step = Math.sign(rawDelta) * calibrated;
+
+      const container = scrollContainerRef.current;
+      const maxDocScroll = container
+        ? Math.max(0, container.offsetTop + container.offsetHeight - window.innerHeight)
+        : Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+
+      const nextY = Math.max(0, Math.min(maxDocScroll, window.scrollY + step));
+      window.scrollTo({ top: nextY, behavior: "auto" });
     };
 
     window.addEventListener("wheel", handleWheel, { passive: false });
     return () => window.removeEventListener("wheel", handleWheel);
-  }, [clearHold]);
-
-  // Aggiorna il countdown 3 -> 2 -> 1 -> 0
-  useEffect(() => {
-    if (holdSeconds <= 0) return;
-    const timer = window.setInterval(() => {
-      const held = heldStopRef.current;
-      if (!held) {
-        setHoldSeconds(0);
-        return;
-      }
-      const remainingMs = held.until - performance.now();
-      if (remainingMs <= 0) {
-        clearHold();
-      } else {
-        setHoldSeconds(Math.ceil(remainingMs / 1000));
-      }
-    }, 150);
-
-    return () => window.clearInterval(timer);
-  }, [holdSeconds, clearHold]);
+  }, []);
 
   useMotionValueEvent(scrollYProgress, "change", (latest) => {
-    const prevScroll = scrollProgressRef.current;
-
-    // Se siamo in sosta obbligatoria di 3 secondi, impedisci di superare il punto di sosta
-    const held = heldStopRef.current;
-    if (held) {
-      if (performance.now() >= held.until) {
-        clearHold();
-      } else if (latest > held.lockNormalized) {
-        const lockY = getScrollYForNormalized(held.lockNormalized);
-        window.scrollTo({ top: lockY, behavior: "auto" });
-        return;
-      } else if (latest < held.lockNormalized - 0.03) {
-        // Scorrimento all'indietro libero
-        clearHold();
-      }
-    }
-
-    // Ri-arma una fermata se l'utente torna indietro prima della zona di ingresso
-    for (const ch of journeyChapters) {
-      if (HOLD_STOPS.has(ch.id) && latest < ch.stopPlateauStart - 0.03) {
-        armedStopsRef.current.add(ch.id);
-      }
-    }
-
-    // Attiva la sosta di 3 secondi quando si entra in avanti in una fermata armata
-    if (!bypassHoldRef.current && latest > prevScroll) {
-      for (const ch of journeyChapters) {
-        if (
-          HOLD_STOPS.has(ch.id) &&
-          armedStopsRef.current.has(ch.id) &&
-          prevScroll < ch.stopPlateauStart &&
-          latest >= ch.stopPlateauStart
-        ) {
-          armedStopsRef.current.delete(ch.id);
-          heldStopRef.current = {
-            id: ch.id,
-            until: performance.now() + STOP_HOLD_MS,
-            lockNormalized: ch.scrollTarget,
-          };
-          setHoldSeconds(3);
-
-          const lockY = getScrollYForNormalized(ch.scrollTarget);
-          scrollProgressRef.current = ch.scrollTarget;
-          trackProgressRef.current = mapScrollToTrackProgress(ch.scrollTarget);
-          setActiveChapter(ch);
-          setAtStop(true);
-          window.scrollTo({ top: lockY, behavior: "auto" });
-          return;
-        }
-      }
-    }
-
     scrollProgressRef.current = latest;
     trackProgressRef.current = mapScrollToTrackProgress(latest);
 
@@ -168,26 +124,13 @@ export function useJourneyProgress(): JourneyProgressState {
       const container = scrollContainerRef.current;
       if (!chapter || !container) return;
 
-      clearHold();
-      // Disarma temporaneamente le fermate intermedie durante il salto da menu / Continua
-      bypassHoldRef.current = true;
-      for (const ch of journeyChapters) {
-        if (ch.scrollTarget <= chapter.scrollTarget) {
-          armedStopsRef.current.delete(ch.id);
-        }
-      }
-
       const targetY = getScrollYForNormalized(chapter.scrollTarget);
       window.scrollTo({
         top: targetY,
         behavior: reducedMotion ? "auto" : "smooth",
       });
-
-      window.setTimeout(() => {
-        bypassHoldRef.current = false;
-      }, reducedMotion ? 100 : 1100);
     },
-    [clearHold, getScrollYForNormalized],
+    [getScrollYForNormalized],
   );
 
   return {
@@ -195,7 +138,7 @@ export function useJourneyProgress(): JourneyProgressState {
     scrollYProgress,
     activeChapter,
     atStop,
-    holdSeconds,
+    holdSeconds: 0,
     trackProgressRef,
     scrollProgressRef,
     jumpToStop,

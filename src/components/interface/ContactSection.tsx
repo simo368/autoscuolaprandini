@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { businessConfig, getWhatsAppHref } from "@/data/configuration";
+import { businessConfig, getWhatsAppHref, modelAttribution } from "@/data/configuration";
 import { journeyChapters, type JourneyStopId } from "@/data/journey";
 import { EASE_AUTOMOTIVE, panelRevealVariants, reducedRevealVariants } from "@/lib/animations";
 import { ArrowDiagonal, CloseIcon } from "@/components/interface/Icons";
@@ -138,6 +138,22 @@ export default function ContactSection({
                   </nav>
                 </>
               )}
+
+              <p className="contact-model-credit">
+                3D model:{" "}
+                <a href={modelAttribution.modelUrl} target="_blank" rel="noreferrer">
+                  {modelAttribution.modelTitle}
+                </a>{" "}
+                by{" "}
+                <a href={modelAttribution.authorUrl} target="_blank" rel="noreferrer">
+                  {modelAttribution.authorName}
+                </a>
+                , licensed under{" "}
+                <a href={modelAttribution.licenseUrl} target="_blank" rel="noreferrer">
+                  {modelAttribution.licenseLabel}
+                </a>
+                .
+              </p>
             </div>
           </motion.section>
         )}

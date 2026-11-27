@@ -76,12 +76,12 @@ export default function CameraRig({
     const absSpeed = Math.abs(speed);
     const t = trackRef.current ?? 0;
 
-    // Modalità con isteresi: nessuno sfarfallio tra inquadratura di guida e di sosta
+    // Modalità con isteresi leggera: in guida nessun inseguimento ritardato dietro l'auto
     if (!atStop) {
       modeRef.current = "driving";
-    } else if (modeRef.current === "driving" && absSpeed < 1.2) {
+    } else if (modeRef.current === "driving" && absSpeed < 2.2) {
       modeRef.current = "stop";
-    } else if (modeRef.current === "stop" && absSpeed > 3) {
+    } else if (modeRef.current === "stop" && absSpeed > 4.5) {
       modeRef.current = "driving";
     }
     const driving = modeRef.current === "driving";
@@ -139,19 +139,13 @@ export default function CameraRig({
       headingRef.current = targetHeading;
       blendRef.current = driving ? 1 : 0;
     } else {
-      headingRef.current = dampAngle(headingRef.current, targetHeading, driving ? 3.4 : 2.6, dt);
-      blendRef.current = THREE.MathUtils.damp(blendRef.current, driving ? 1 : 0, 3.2, dt);
+      headingRef.current = dampAngle(headingRef.current, targetHeading, driving ? 14 : 4.2, dt);
+      blendRef.current = THREE.MathUtils.damp(blendRef.current, driving ? 1 : 0, 5.5, dt);
     }
     const heading = headingRef.current;
 
     // Posizione desiderata nello spazio dell'auto, ruotata dalla direzione di ripresa
     s.desiredPos.copy(s.offset).applyAxisAngle(UP, heading).add(carPos);
-
-    // Compensazione del ritardo della molla: la camera "anticipa" la velocità, inquadratura stabile
-    if (driving && !snap) {
-      s.forward.set(Math.sin(heading), 0, Math.cos(heading));
-      s.desiredPos.addScaledVector(s.forward, speed * 0.2);
-    }
 
     // Bersaglio dello sguardo: punto locale al veicolo (soste) o punto avanzato sulla spline (guida)
     s.localLook.copy(s.lookOffset).applyAxisAngle(UP, heading).add(carPos);
@@ -163,22 +157,23 @@ export default function CameraRig({
 
     s.look.copy(s.localLook).lerp(s.splineLook, blendRef.current);
 
-    // Posizione: molla critica unica (velocità continua, nessuna vibrazione)
-    if (snap) {
+    // In guida la camera segue immediatamente la posizione della vettura (zero inerzia autonoma);
+    // nelle transizioni di sosta ammorbidisce solo il cambio d'inquadratura.
+    if (snap || (driving && blendRef.current > 0.985)) {
       s.pos.copy(s.desiredPos);
       s.vel.set(0, 0, 0);
     } else {
-      smoothDampVec3(s.pos, s.desiredPos, s.vel, driving ? 0.2 : 0.55, dt);
+      smoothDampVec3(s.pos, s.desiredPos, s.vel, driving ? 0.07 : 0.32, dt);
     }
     camera.position.copy(s.pos);
 
-    // Orientamento: slerp di quaternioni verso la direzione di sguardo (mai salti di rotazione)
+    // Orientamento: slerp rapido verso la direzione di sguardo
     s.matrix.lookAt(s.pos, s.look, UP);
     s.targetQuat.setFromRotationMatrix(s.matrix);
-    if (snap) {
+    if (snap || (driving && blendRef.current > 0.985)) {
       camera.quaternion.copy(s.targetQuat);
     } else {
-      camera.quaternion.slerp(s.targetQuat, 1 - Math.exp(-(driving ? 8 : 5.5) * dt));
+      camera.quaternion.slerp(s.targetQuat, 1 - Math.exp(-(driving ? 16 : 7.5) * dt));
     }
 
     // Campo visivo: cambia solo tra preset, lentamente (nessun effetto "zoom di velocità")

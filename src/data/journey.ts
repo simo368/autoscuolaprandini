@@ -18,6 +18,8 @@ export interface JourneyChapter {
   trackT: number;
 }
 
+export const START_TRACK_T = 0.105;
+
 export const journeyChapters: JourneyChapter[] = [
   {
     id: "intro",
@@ -26,11 +28,11 @@ export const journeyChapters: JourneyChapter[] = [
     shortLabel: "Partenza",
     phaseLabel: "ORA BLU · CAMPAGNA",
     scrollStart: 0,
-    scrollEnd: 0.12,
+    scrollEnd: 0.055,
     scrollTarget: 0,
     stopPlateauStart: 0,
-    stopPlateauEnd: 0.04,
-    trackT: 0.035,
+    stopPlateauEnd: 0.015,
+    trackT: 0.115,
   },
   {
     id: "patenti",
@@ -38,11 +40,11 @@ export const journeyChapters: JourneyChapter[] = [
     navLabel: "Le patenti",
     shortLabel: "Patenti",
     phaseLabel: "PRIMA MATTINA · ROTATORIA",
-    scrollStart: 0.12,
-    scrollEnd: 0.45,
-    scrollTarget: 0.245,
-    stopPlateauStart: 0.2,
-    stopPlateauEnd: 0.29,
+    scrollStart: 0.055,
+    scrollEnd: 0.375,
+    scrollTarget: 0.145,
+    stopPlateauStart: 0.095,
+    stopPlateauEnd: 0.195,
     trackT: 0.39,
   },
   {
@@ -51,11 +53,11 @@ export const journeyChapters: JourneyChapter[] = [
     navLabel: "Rinnovo patenti",
     shortLabel: "Rinnovo",
     phaseLabel: "LUCE CALDA · PADIGLIONE",
-    scrollStart: 0.45,
-    scrollEnd: 0.7,
-    scrollTarget: 0.495,
-    stopPlateauStart: 0.45,
-    stopPlateauEnd: 0.54,
+    scrollStart: 0.375,
+    scrollEnd: 0.655,
+    scrollTarget: 0.425,
+    stopPlateauStart: 0.375,
+    stopPlateauEnd: 0.475,
     trackT: 0.61,
   },
   {
@@ -64,11 +66,11 @@ export const journeyChapters: JourneyChapter[] = [
     navLabel: "Recupero punti",
     shortLabel: "Punti",
     phaseLabel: "MATTINO D'ORO · SEGNALETICA",
-    scrollStart: 0.7,
-    scrollEnd: 0.95,
-    scrollTarget: 0.745,
-    stopPlateauStart: 0.7,
-    stopPlateauEnd: 0.79,
+    scrollStart: 0.655,
+    scrollEnd: 0.935,
+    scrollTarget: 0.705,
+    stopPlateauStart: 0.655,
+    stopPlateauEnd: 0.755,
     trackT: 0.77,
   },
   {
@@ -77,72 +79,78 @@ export const journeyChapters: JourneyChapter[] = [
     navLabel: "Contatti",
     shortLabel: "Cavezzo",
     phaseLabel: "SOLE DEL MATTINO · CAVEZZO",
-    scrollStart: 0.95,
+    scrollStart: 0.935,
     scrollEnd: 1,
-    scrollTarget: 0.975,
-    stopPlateauStart: 0.95,
+    scrollTarget: 0.97,
+    stopPlateauStart: 0.935,
     stopPlateauEnd: 1,
     trackT: 0.94,
   },
 ];
 
-function easeInOutCubic(t: number): number {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+/**
+ * Curva deterministica morbida ma reattiva: evita accelerazioni eccessive a metà tratto
+ * e avvia subito la vettura appena si lascia una sosta.
+ */
+function easeDriving(t: number): number {
+  const c = Math.max(0, Math.min(1, t));
+  const smooth = c * c * (3 - 2 * c);
+  return 0.38 * c + 0.62 * smooth;
 }
 
 /**
- * Converte il progresso dello scroll [0..1] nella posizione lungo la strada panoramica,
- * con tratti di guida equilibrati (16% ciascuno) e soste stabili alle destinazioni (9%).
+ * Converte il progresso dello scroll [0..1] nella posizione lungo la strada panoramica.
+ * Primo tratto (Partenza -> Patenti) accorciato e immediato; tratti successivi preservati.
  */
 export function mapScrollToTrackProgress(scroll: number): number {
   const s = Math.max(0, Math.min(1, scroll));
 
-  // Intro: 0.00 - 0.04 (0.02 -> 0.035)
-  if (s <= 0.04) {
-    const local = easeInOutCubic(s / 0.04);
-    return 0.02 + local * 0.015;
+  // Intro: 0.00 - 0.015 (0.105 -> 0.115)
+  if (s <= 0.015) {
+    const local = easeDriving(s / 0.015);
+    return START_TRACK_T + local * 0.01;
   }
 
-  // Driving to Patenti: 0.04 - 0.20 (0.035 -> 0.39)
-  if (s <= 0.2) {
-    const local = easeInOutCubic((s - 0.04) / 0.16);
-    return 0.035 + local * 0.355;
+  // Driving to Patenti (tratto iniziale più breve e immediato): 0.015 - 0.095 (0.115 -> 0.39)
+  if (s <= 0.095) {
+    const local = easeDriving((s - 0.015) / 0.08);
+    return 0.115 + local * 0.275;
   }
 
-  // Patenti stop: 0.20 - 0.29
-  if (s <= 0.29) {
+  // Patenti stop: 0.095 - 0.195
+  if (s <= 0.195) {
     return 0.39;
   }
 
-  // Driving to Rinnovo: 0.29 - 0.45 (0.39 -> 0.61)
-  if (s <= 0.45) {
-    const local = easeInOutCubic((s - 0.29) / 0.16);
+  // Driving to Rinnovo: 0.195 - 0.375 (0.39 -> 0.61)
+  if (s <= 0.375) {
+    const local = easeDriving((s - 0.195) / 0.18);
     return 0.39 + local * 0.22;
   }
 
-  // Rinnovo stop: 0.45 - 0.54
-  if (s <= 0.54) {
+  // Rinnovo stop: 0.375 - 0.475
+  if (s <= 0.475) {
     return 0.61;
   }
 
-  // Driving to Recupero Punti: 0.54 - 0.70 (0.61 -> 0.77)
-  if (s <= 0.7) {
-    const local = easeInOutCubic((s - 0.54) / 0.16);
+  // Driving to Recupero Punti: 0.475 - 0.655 (0.61 -> 0.77)
+  if (s <= 0.655) {
+    const local = easeDriving((s - 0.475) / 0.18);
     return 0.61 + local * 0.16;
   }
 
-  // Recupero Punti stop: 0.70 - 0.79
-  if (s <= 0.79) {
+  // Recupero Punti stop: 0.655 - 0.755
+  if (s <= 0.755) {
     return 0.77;
   }
 
-  // Driving to Cavezzo: 0.79 - 0.95 (0.77 -> 0.94)
-  if (s <= 0.95) {
-    const local = easeInOutCubic((s - 0.79) / 0.16);
+  // Driving to Cavezzo: 0.755 - 0.935 (0.77 -> 0.94)
+  if (s <= 0.935) {
+    const local = easeDriving((s - 0.755) / 0.18);
     return 0.77 + local * 0.17;
   }
 
-  // Final destination (Cavezzo): 0.95 - 1.00
+  // Final destination (Cavezzo): 0.935 - 1.00
   return 0.94;
 }
 

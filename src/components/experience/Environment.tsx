@@ -80,24 +80,24 @@ export default function SceneEnvironment({
   const skyMatRef = useRef<THREE.ShaderMaterial>(null);
 
   const atmosphereRef = useRef<AtmosphereState>({
-    skyTop: new THREE.Color("#4B6A82"),
-    skyHorizon: new THREE.Color("#B8CCD4"),
-    fogColor: new THREE.Color("#B8CCD4"),
-    fogDensity: 0.0052,
-    sunIntensity: 1.15,
-    sunColor: new THREE.Color("#C7DCEE"),
-    sunElevation: 7,
-    ambientIntensity: 0.85,
-    hemiSky: new THREE.Color("#DAE7EC"),
-    hemiGround: new THREE.Color("#525E53"),
-    headlightPower: 0.9,
+    skyTop: new THREE.Color("#0B111A"),
+    skyHorizon: new THREE.Color("#182534"),
+    fogColor: new THREE.Color("#182534"),
+    fogDensity: 0.0058,
+    sunIntensity: 1.45,
+    sunColor: new THREE.Color("#9EC0DE"),
+    sunElevation: 8,
+    ambientIntensity: 0.68,
+    hemiSky: new THREE.Color("#5D7388"),
+    hemiGround: new THREE.Color("#1B242C"),
+    headlightPower: 1.0,
     dawnMix: 0,
   });
 
   const initialSkyUniforms = useMemo(
     () => ({
-      uTopColor: { value: new THREE.Color("#4B6A82") },
-      uHorizonColor: { value: new THREE.Color("#B8CCD4") },
+      uTopColor: { value: new THREE.Color("#0B111A") },
+      uHorizonColor: { value: new THREE.Color("#182534") },
       uSunDir: { value: new THREE.Vector3(0.24, 0.22, -1).normalize() },
       uDawnMix: { value: 0 },
     }),
@@ -166,24 +166,25 @@ export default function SceneEnvironment({
 
   return (
     <>
-      <color ref={bgColorRef} attach="background" args={["#B8CCD4"]} />
-      <fogExp2 ref={fogRef} attach="fog" args={["#B8CCD4", 0.0052]} />
+      <color ref={bgColorRef} attach="background" args={["#182534"]} />
+      <fogExp2 ref={fogRef} attach="fog" args={["#182534", 0.0058]} />
 
-      <hemisphereLight ref={hemiLightRef} args={["#DAE7EC", "#525E53", 0.95]} />
+      <hemisphereLight ref={hemiLightRef} args={["#5D7388", "#1B242C", 0.68]} />
       <directionalLight
         ref={dirLightRef}
         position={[24, 34, -80]}
-        intensity={1.3}
+        intensity={1.45}
         castShadow={!isMobile}
-        shadow-mapSize-width={isMobile ? 512 : 1536}
-        shadow-mapSize-height={isMobile ? 512 : 1536}
+        shadow-mapSize-width={isMobile ? 512 : 2048}
+        shadow-mapSize-height={isMobile ? 512 : 2048}
+        shadow-radius={4}
         shadow-camera-near={5}
         shadow-camera-far={260}
         shadow-camera-left={-55}
         shadow-camera-right={55}
         shadow-camera-top={55}
         shadow-camera-bottom={-55}
-        shadow-bias={-0.0004}
+        shadow-bias={-0.00035}
       />
 
       {/* Cupola cielo panoramica */}
@@ -205,39 +206,47 @@ export default function SceneEnvironment({
         <meshBasicMaterial color="#FFF0D4" transparent opacity={0.92} fog={false} />
       </mesh>
 
-      {/* Environment map procedurale chiara e naturale per riflessi argento metallizzato della Captur */}
+      {/* Studio automobilistico: softbox superiore, key anteriore e rim laterale per riflessi realistici */}
       <DreiEnvironment frames={1} resolution={isMobile ? 64 : 128}>
         <Lightformer
           form="rect"
-          intensity={2.8}
-          position={[0, 10, 0]}
-          scale={[24, 10, 1]}
+          intensity={3.6}
+          position={[0, 9.5, 2]}
+          scale={[18, 4.5, 1]}
           rotation={[Math.PI / 2, 0, 0]}
-          color="#FAFAF7"
+          color="#F2F6FA"
         />
         <Lightformer
           form="rect"
-          intensity={1.9}
-          position={[-12, 4, 0]}
-          scale={[20, 4, 1]}
+          intensity={2.8}
+          position={[9, 3.2, 7]}
+          scale={[11, 3.2, 1]}
+          rotation={[0, -Math.PI / 3, 0]}
+          color="#FFF5E4"
+        />
+        <Lightformer
+          form="rect"
+          intensity={2.5}
+          position={[-11, 3.6, -2]}
+          scale={[18, 3.2, 1]}
           rotation={[0, Math.PI / 2, 0]}
-          color="#CADCE0"
+          color="#B5CFE2"
         />
         <Lightformer
           form="rect"
           intensity={2.2}
-          position={[12, 4, -8]}
-          scale={[20, 4, 1]}
+          position={[11, 4, -8]}
+          scale={[18, 3.5, 1]}
           rotation={[0, -Math.PI / 2, 0]}
           color="#F3D9B3"
         />
         <Lightformer
           form="ring"
-          intensity={1.2}
+          intensity={0.95}
           position={[0, -4, 0]}
           scale={[18, 18, 1]}
           rotation={[-Math.PI / 2, 0, 0]}
-          color="#879B88"
+          color="#3A464C"
         />
       </DreiEnvironment>
     </>
