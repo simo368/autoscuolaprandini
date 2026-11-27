@@ -95,9 +95,20 @@ export default function JourneyController({
 
     const dt = Math.max(0.001, Math.min(delta, 0.05));
 
-    // Posizione 100% deterministica: nessuna inerzia autonoma, nessun ritardo rispetto allo scroll.
+    // Micro-interpolazione ad alta reattività (lambda = 28, ~100ms di assestamento):
+    // elimina gli scatti tra un evento rotella e il successivo a 60/120fps,
+    // senza introdurre inerzia autonoma dopo che l'utente si è fermato.
     const prevT = currentTRef.current;
-    const nextT = THREE.MathUtils.clamp(trackProgressRef.current ?? START_TRACK_T, 0.004, 0.99);
+    const targetT = THREE.MathUtils.clamp(trackProgressRef.current ?? START_TRACK_T, 0.004, 0.99);
+    let nextT: number;
+    if (reducedMotion || Math.abs(targetT - prevT) < 1e-5) {
+      nextT = targetT;
+    } else {
+      nextT = THREE.MathUtils.damp(prevT, targetT, 28, dt);
+      if (Math.abs(targetT - nextT) < 1e-5) {
+        nextT = targetT;
+      }
+    }
     currentTRef.current = nextT;
 
     const deltaT = nextT - prevT;

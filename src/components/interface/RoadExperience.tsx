@@ -2,7 +2,6 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useState } from "react";
-import { modelAttribution } from "@/data/configuration";
 import type { LicenceCategoryId } from "@/data/services";
 import { useJourneyProgress } from "@/hooks/useJourneyProgress";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -126,25 +125,10 @@ export default function RoadExperience() {
             />
           )}
 
-          <footer className="viewport-bottom-hint">
-            <span>RENAULT CAPTUR 2025 · CAVEZZO</span>
-            <span className="footer-model-credit">
-              3D model:{" "}
-              <a href={modelAttribution.modelUrl} target="_blank" rel="noreferrer">
-                {modelAttribution.modelTitle}
-              </a>{" "}
-              by{" "}
-              <a href={modelAttribution.authorUrl} target="_blank" rel="noreferrer">
-                {modelAttribution.authorName}
-              </a>
-              , licensed under{" "}
-              <a href={modelAttribution.licenseUrl} target="_blank" rel="noreferrer">
-                {modelAttribution.licenseLabel}
-              </a>
-              .
-            </span>
+          <div className="viewport-bottom-hint" aria-hidden="true">
+            <span>AUTOSCUOLA PRANTINI · CAVEZZO</span>
             <span>SCORRI PER PROSEGUIRE</span>
-          </footer>
+          </div>
         </div>
       </div>
     </main>

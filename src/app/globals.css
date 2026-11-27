@@ -711,6 +711,7 @@ a:focus-visible {
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+  min-width: 0;
   padding: 12px 14px;
   border: 0;
   border-right: 1px solid var(--hairline);
@@ -743,6 +744,10 @@ a:focus-visible {
 }
 
 .category-tab__meta {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-mono), monospace;
   font-size: 8.5px;
   letter-spacing: 0.1em;
@@ -1101,7 +1106,14 @@ a:focus-visible {
   font-size: 20px;
 }
 
-/* === TABLET & MOBILE RESPONSIVE === */
+/* === TABLET & LAPTOP RESPONSIVE === */
+@media (max-width: 1400px) {
+  .editorial-panel--wide {
+    width: min(440px, 100%);
+    padding: 24px 26px;
+  }
+}
+
 @media (max-width: 1024px) {
   .topbar-status {
     display: none;
@@ -1480,7 +1492,7 @@ a:focus-visible {
   }
 }
 
-/* Schermi molto piccoli (es. iPhone SE 320x568) */
+/* Schermi molto piccoli (es. 360px / iPhone SE) */
 @media (max-width: 379px) {
   .intro-overlay__title {
     font-size: 24px;
@@ -1490,16 +1502,33 @@ a:focus-visible {
   .editorial-panel--wide,
   .editorial-panel--right,
   .contact-destination__panel {
-    padding: 15px 14px;
+    padding: 14px 12px;
   }
 
   .editorial-panel__title,
   .contact-destination__title {
-    font-size: 21px;
+    font-size: 20px;
+  }
+
+  .category-tab {
+    padding: 8px 8px;
+  }
+
+  .category-tab__code {
+    font-size: 16px;
   }
 
   .category-tab__meta {
     font-size: 7.5px;
+    letter-spacing: 0.04em;
+  }
+
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost {
+    padding: 0 11px;
+    font-size: 9px;
+    gap: 8px;
   }
 }
 

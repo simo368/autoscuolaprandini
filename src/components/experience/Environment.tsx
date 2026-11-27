@@ -175,9 +175,9 @@ export default function SceneEnvironment({
         position={[24, 34, -80]}
         intensity={1.45}
         castShadow={!isMobile}
-        shadow-mapSize-width={isMobile ? 512 : 2048}
-        shadow-mapSize-height={isMobile ? 512 : 2048}
-        shadow-radius={4}
+        shadow-mapSize-width={isMobile ? 512 : 1024}
+        shadow-mapSize-height={isMobile ? 512 : 1024}
+        shadow-radius={3}
         shadow-camera-near={5}
         shadow-camera-far={260}
         shadow-camera-left={-55}
@@ -207,7 +207,7 @@ export default function SceneEnvironment({
       </mesh>
 
       {/* Studio automobilistico: softbox superiore, key anteriore e rim laterale per riflessi realistici */}
-      <DreiEnvironment frames={1} resolution={isMobile ? 64 : 128}>
+      <DreiEnvironment frames={1} resolution={isMobile ? 32 : 64}>
         <Lightformer
           form="rect"
           intensity={3.6}

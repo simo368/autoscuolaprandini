@@ -129,24 +129,30 @@ export default function RenaultCaptur({
       let next: THREE.Material;
 
       if (name.includes("paint_1")) {
-        // Carrozzeria principale metallizzata con clearcoat da studio automobilistico
-        next = new THREE.MeshPhysicalMaterial({
-          color: std.color ? std.color.clone() : new THREE.Color(carConfig.paintColor),
-          metalness: 0.72,
-          roughness: 0.21,
-          clearcoat: 1.0,
-          clearcoatRoughness: 0.055,
-          envMapIntensity: 1.75,
-        });
+        // Carrozzeria principale metallizzata: clearcoat su desktop, PBR leggero su mobile
+        next = isMobile
+          ? new THREE.MeshStandardMaterial({
+              color: std.color ? std.color.clone() : new THREE.Color(carConfig.paintColor),
+              metalness: 0.72,
+              roughness: 0.2,
+              envMapIntensity: 1.65,
+            })
+          : new THREE.MeshPhysicalMaterial({
+              color: std.color ? std.color.clone() : new THREE.Color(carConfig.paintColor),
+              metalness: 0.72,
+              roughness: 0.21,
+              clearcoat: 1.0,
+              clearcoatRoughness: 0.055,
+              envMapIntensity: 1.75,
+            });
       } else if (name.includes("translucent_glass_dark_green")) {
         // Gruppi ottici posteriori rossi
-        const tail = new THREE.MeshPhysicalMaterial({
+        const tail = new THREE.MeshStandardMaterial({
           color: new THREE.Color("#7E1216"),
           emissive: new THREE.Color("#E52424"),
           emissiveIntensity: 1.4,
           metalness: 0.15,
-          roughness: 0.12,
-          clearcoat: 1.0,
+          roughness: 0.14,
           transparent: true,
           opacity: 0.9,
           envMapIntensity: 1.4,
@@ -155,26 +161,42 @@ export default function RenaultCaptur({
         next = tail;
       } else if (name.includes("translucent_glass") || name.includes("color_m03")) {
         // Cristalli e vetri fumé riflettenti
-        next = new THREE.MeshPhysicalMaterial({
-          color: new THREE.Color("#141C24"),
-          metalness: 0.12,
-          roughness: 0.05,
-          clearcoat: 1.0,
-          clearcoatRoughness: 0.04,
-          transparent: true,
-          opacity: 0.68,
-          envMapIntensity: 1.95,
-        });
+        next = isMobile
+          ? new THREE.MeshStandardMaterial({
+              color: new THREE.Color("#141C24"),
+              metalness: 0.2,
+              roughness: 0.08,
+              transparent: true,
+              opacity: 0.72,
+              envMapIntensity: 1.75,
+            })
+          : new THREE.MeshPhysicalMaterial({
+              color: new THREE.Color("#141C24"),
+              metalness: 0.12,
+              roughness: 0.05,
+              clearcoat: 1.0,
+              clearcoatRoughness: 0.04,
+              transparent: true,
+              opacity: 0.68,
+              envMapIntensity: 1.95,
+            });
       } else if (name.includes("color_m06")) {
         // Tetto e dettagli nero lucido / antracite
-        next = new THREE.MeshPhysicalMaterial({
-          color: std.color ? std.color.clone() : new THREE.Color("#222930"),
-          metalness: 0.45,
-          roughness: 0.22,
-          clearcoat: 0.9,
-          clearcoatRoughness: 0.08,
-          envMapIntensity: 1.45,
-        });
+        next = isMobile
+          ? new THREE.MeshStandardMaterial({
+              color: std.color ? std.color.clone() : new THREE.Color("#222930"),
+              metalness: 0.45,
+              roughness: 0.24,
+              envMapIntensity: 1.35,
+            })
+          : new THREE.MeshPhysicalMaterial({
+              color: std.color ? std.color.clone() : new THREE.Color("#222930"),
+              metalness: 0.45,
+              roughness: 0.22,
+              clearcoat: 0.9,
+              clearcoatRoughness: 0.08,
+              envMapIntensity: 1.45,
+            });
       } else if (name.includes("color_m01") || name.includes("whitesmoke")) {
         // Dettagli satinati / inserti chiari / loghi cerchi
         next = new THREE.MeshStandardMaterial({
@@ -250,7 +272,7 @@ export default function RenaultCaptur({
       autoRotationY: rotY,
       clonedMaterials: createdMaterials,
     };
-  }, [gltf.scene, castShadows]);
+  }, [gltf.scene, castShadows, isMobile]);
 
   useEffect(() => {
     const chassis = chassisRef.current;
@@ -363,14 +385,16 @@ export default function RenaultCaptur({
 
   return (
     <group>
-      <pointLight
-        ref={highlightSpotRef}
-        position={[0, 3.0, 1.4]}
-        color="#FFF3DF"
-        intensity={0}
-        distance={8}
-        decay={2}
-      />
+      {!isMobile && (
+        <pointLight
+          ref={highlightSpotRef}
+          position={[0, 3.0, 1.4]}
+          color="#FFF3DF"
+          intensity={0}
+          distance={8}
+          decay={2}
+        />
+      )}
 
       {/* Ombra morbida di contatto a terra sotto la Captur */}
       <mesh position={[0, 0.015, 0.06]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={1}>
@@ -388,31 +412,35 @@ export default function RenaultCaptur({
           <primitive object={clonedScene} />
         </group>
 
-        {/* Fari anteriori caldi per la prima fascia Studio Ora Blu */}
-        <primitive object={spotTargetLeft} />
-        <primitive object={spotTargetRight} />
-        <spotLight
-          ref={headSpotLeftRef}
-          position={[-0.62, 0.84, 2.02]}
-          target={spotTargetLeft}
-          angle={0.44}
-          penumbra={0.68}
-          intensity={24}
-          distance={34}
-          decay={1.7}
-          color="#FFF2D9"
-        />
-        <spotLight
-          ref={headSpotRightRef}
-          position={[0.62, 0.84, 2.02]}
-          target={spotTargetRight}
-          angle={0.44}
-          penumbra={0.68}
-          intensity={24}
-          distance={34}
-          decay={1.7}
-          color="#FFF2D9"
-        />
+        {/* Fari anteriori caldi: spotLight solo su desktop, coni volumetrici leggeri ovunque */}
+        {!isMobile && (
+          <>
+            <primitive object={spotTargetLeft} />
+            <primitive object={spotTargetRight} />
+            <spotLight
+              ref={headSpotLeftRef}
+              position={[-0.62, 0.84, 2.02]}
+              target={spotTargetLeft}
+              angle={0.44}
+              penumbra={0.68}
+              intensity={24}
+              distance={34}
+              decay={1.7}
+              color="#FFF2D9"
+            />
+            <spotLight
+              ref={headSpotRightRef}
+              position={[0.62, 0.84, 2.02]}
+              target={spotTargetRight}
+              angle={0.44}
+              penumbra={0.68}
+              intensity={24}
+              distance={34}
+              decay={1.7}
+              color="#FFF2D9"
+            />
+          </>
+        )}
         <mesh geometry={coneGeo} position={[-0.62, 0.82, 2.02]}>
           <meshBasicMaterial
             ref={beamLeftMatRef}

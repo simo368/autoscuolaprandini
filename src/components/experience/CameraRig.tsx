@@ -115,14 +115,21 @@ export default function CameraRig({
     // Inquadratura dedicata allo Stop 01 in base al veicolo selezionato (AM / A / B)
     if (presetKey === "patenti") {
       if (selectedCategory === "am") {
-        s.offset.x -= 0.7;
-        s.lookOffset.x += 1.35;
-        s.lookOffset.z += 0.25;
+        if (isPortraitMobile) {
+          s.offset.set(2.8, 1.85, 4.1);
+          s.lookOffset.set(3.85, -0.25, 0.6);
+        } else {
+          s.offset.set(1.25, 1.8, 4.35);
+          s.lookOffset.set(3.25, 0.65, 0.55);
+        }
       } else if (selectedCategory === "a") {
-        s.offset.x -= 1.0;
-        s.offset.z += 1.05;
-        s.lookOffset.x += 1.95;
-        s.lookOffset.z += 1.1;
+        if (isPortraitMobile) {
+          s.offset.set(4.8, 1.95, 6.2);
+          s.lookOffset.set(6.0, -0.2, 2.7);
+        } else {
+          s.offset.set(3.15, 1.9, 6.35);
+          s.lookOffset.set(5.25, 0.72, 2.65);
+        }
       }
     }
 
@@ -139,8 +146,8 @@ export default function CameraRig({
       headingRef.current = targetHeading;
       blendRef.current = driving ? 1 : 0;
     } else {
-      headingRef.current = dampAngle(headingRef.current, targetHeading, driving ? 14 : 4.2, dt);
-      blendRef.current = THREE.MathUtils.damp(blendRef.current, driving ? 1 : 0, 5.5, dt);
+      headingRef.current = dampAngle(headingRef.current, targetHeading, driving ? 24 : 5, dt);
+      blendRef.current = THREE.MathUtils.damp(blendRef.current, driving ? 1 : 0, 6.5, dt);
     }
     const heading = headingRef.current;
 
@@ -157,23 +164,27 @@ export default function CameraRig({
 
     s.look.copy(s.localLook).lerp(s.splineLook, blendRef.current);
 
-    // In guida la camera segue immediatamente la posizione della vettura (zero inerzia autonoma);
+    // In guida la camera segue con micro-damp ad alta reattività (nessuno scatto né ritardo);
     // nelle transizioni di sosta ammorbidisce solo il cambio d'inquadratura.
-    if (snap || (driving && blendRef.current > 0.985)) {
+    if (snap) {
       s.pos.copy(s.desiredPos);
       s.vel.set(0, 0, 0);
+    } else if (driving && blendRef.current > 0.985) {
+      const alpha = 1 - Math.exp(-28 * dt);
+      s.pos.lerp(s.desiredPos, alpha);
+      s.vel.set(0, 0, 0);
     } else {
-      smoothDampVec3(s.pos, s.desiredPos, s.vel, driving ? 0.07 : 0.32, dt);
+      smoothDampVec3(s.pos, s.desiredPos, s.vel, driving ? 0.06 : 0.28, dt);
     }
     camera.position.copy(s.pos);
 
     // Orientamento: slerp rapido verso la direzione di sguardo
     s.matrix.lookAt(s.pos, s.look, UP);
     s.targetQuat.setFromRotationMatrix(s.matrix);
-    if (snap || (driving && blendRef.current > 0.985)) {
+    if (snap) {
       camera.quaternion.copy(s.targetQuat);
     } else {
-      camera.quaternion.slerp(s.targetQuat, 1 - Math.exp(-(driving ? 16 : 7.5) * dt));
+      camera.quaternion.slerp(s.targetQuat, 1 - Math.exp(-(driving ? 28 : 8) * dt));
     }
 
     // Campo visivo: cambia solo tra preset, lentamente (nessun effetto "zoom di velocità")

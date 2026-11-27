@@ -224,7 +224,7 @@ export default function Destinations({
         </group>
 
         {/* Veicoli dedicati Scooter AM e Moto A integrati nelle piazzole in pietra chiara */}
-        <PatentiVehicles selectedCategory={selectedCategory} castShadows={!isMobile} />
+        <PatentiVehicles selectedCategory={selectedCategory} castShadows={!isMobile} isMobile={isMobile} />
       </group>
 
       {/* === STOP 02: PADIGLIONE MODERNO IN PIETRA CHIARA, LEGNO E VETRO — RINNOVO PATENTI === */}

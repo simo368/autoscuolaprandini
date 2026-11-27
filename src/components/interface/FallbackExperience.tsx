@@ -132,19 +132,17 @@ export default function FallbackExperience() {
 
       <footer className="fallback-footer">
         <p className="contact-model-credit">
-          3D model:{" "}
           <a href={modelAttribution.modelUrl} target="_blank" rel="noreferrer">
             {modelAttribution.modelTitle}
           </a>{" "}
           by{" "}
           <a href={modelAttribution.authorUrl} target="_blank" rel="noreferrer">
             {modelAttribution.authorName}
-          </a>
-          , licensed under{" "}
+          </a>{" "}
+          – Sketchfab –{" "}
           <a href={modelAttribution.licenseUrl} target="_blank" rel="noreferrer">
             {modelAttribution.licenseLabel}
           </a>
-          .
         </p>
       </footer>
     </main>

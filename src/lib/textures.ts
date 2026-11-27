@@ -76,13 +76,13 @@ export function createAsphaltTextures(isMobile = false): {
   map.wrapT = THREE.RepeatWrapping;
   map.repeat.set(1, 140);
   map.colorSpace = THREE.SRGBColorSpace;
-  map.anisotropy = 8;
+  map.anisotropy = isMobile ? 2 : 8;
 
   const roughnessMap = new THREE.CanvasTexture(roughCanvas);
   roughnessMap.wrapS = THREE.RepeatWrapping;
   roughnessMap.wrapT = THREE.RepeatWrapping;
   roughnessMap.repeat.set(1, 140);
-  roughnessMap.anisotropy = 4;
+  roughnessMap.anisotropy = isMobile ? 1 : 4;
 
   const bumpMap = new THREE.CanvasTexture(roughCanvas);
   bumpMap.wrapS = THREE.RepeatWrapping;

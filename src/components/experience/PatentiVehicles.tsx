@@ -9,6 +9,7 @@ import { createStoneTexture } from "@/lib/textures";
 interface PatentiVehiclesProps {
   selectedCategory: LicenceCategoryId;
   castShadows?: boolean;
+  isMobile?: boolean;
 }
 
 /**
@@ -20,6 +21,7 @@ interface PatentiVehiclesProps {
 export default function PatentiVehicles({
   selectedCategory,
   castShadows = true,
+  isMobile = false,
 }: PatentiVehiclesProps) {
   const amSpotRef = useRef<THREE.PointLight>(null);
   const aSpotRef = useRef<THREE.PointLight>(null);
@@ -170,12 +172,12 @@ export default function PatentiVehicles({
   return (
     <group>
       {/* === BAY 01: SCOOTER / CICLOMOTORE (PATENTE AM) === */}
-      <group position={[4.5, 0.02, 0.4]} rotation={[0, -0.58, 0]}>
+      <group position={[4.0, 0.02, 0.6]} rotation={[0, -0.58, 0]} scale={1.16}>
         <mesh material={materials.plinth} position={[0, 0.05, 0]} receiveShadow>
-          <cylinderGeometry args={[1.38, 1.46, 0.1, 36]} />
+          <cylinderGeometry args={[1.38, 1.46, 0.1, 32]} />
         </mesh>
         <mesh position={[0, 0.104, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[1.26, 1.34, 48]} />
+          <ringGeometry args={[1.26, 1.34, 40]} />
           <meshStandardMaterial
             ref={amRingMatRef}
             color="#D7AD78"
@@ -183,7 +185,9 @@ export default function PatentiVehicles({
             emissiveIntensity={0.2}
           />
         </mesh>
-        <pointLight ref={amSpotRef} position={[0, 2.3, 0.6]} color="#FFF2DB" intensity={2} distance={6} decay={2} />
+        {!isMobile && (
+          <pointLight ref={amSpotRef} position={[0, 2.3, 0.6]} color="#FFF2DB" intensity={2} distance={6} decay={2} />
+        )}
 
         <group position={[0, 0.1, 0]}>
           <mesh material={materials.matte} position={[0, 0.22, 0.62]} rotation={[0, 0, Math.PI / 2]} castShadow={castShadows}>
@@ -242,12 +246,12 @@ export default function PatentiVehicles({
       </group>
 
       {/* === BAY 02: MOTOCICLO NAKED (PATENTE A) === */}
-      <group position={[6.9, 0.02, 3.1]} rotation={[0, -0.78, 0]}>
+      <group position={[6.2, 0.02, 2.8]} rotation={[0, -0.78, 0]} scale={1.16}>
         <mesh material={materials.plinth} position={[0, 0.05, 0]} receiveShadow>
-          <cylinderGeometry args={[1.58, 1.66, 0.1, 36]} />
+          <cylinderGeometry args={[1.58, 1.66, 0.1, 32]} />
         </mesh>
         <mesh position={[0, 0.104, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[1.46, 1.54, 48]} />
+          <ringGeometry args={[1.46, 1.54, 40]} />
           <meshStandardMaterial
             ref={aRingMatRef}
             color="#D7AD78"
@@ -255,7 +259,9 @@ export default function PatentiVehicles({
             emissiveIntensity={0.2}
           />
         </mesh>
-        <pointLight ref={aSpotRef} position={[0, 2.5, 0.8]} color="#FFF2DB" intensity={2} distance={6} decay={2} />
+        {!isMobile && (
+          <pointLight ref={aSpotRef} position={[0, 2.5, 0.8]} color="#FFF2DB" intensity={2} distance={6} decay={2} />
+        )}
 
         <group position={[0, 0.1, 0]}>
           <mesh material={materials.matte} position={[0, 0.31, 0.76]} rotation={[0, 0, Math.PI / 2]} castShadow={castShadows}>

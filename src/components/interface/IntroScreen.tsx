@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { carConfig } from "@/data/configuration";
+import { businessConfig } from "@/data/configuration";
 import { panelRevealVariants, reducedRevealVariants } from "@/lib/animations";
 import { ArrowDown } from "@/components/interface/Icons";
 
@@ -32,7 +32,7 @@ export default function IntroScreen({
           <div className="intro-overlay__content">
             <div className="intro-overlay__eyebrow">
               <span className="hairline-accent" />
-              <span>00 / PARTENZA · {carConfig.modelLabel.toUpperCase()} {carConfig.modelYear}</span>
+              <span>00 / PARTENZA · {businessConfig.name.toUpperCase()}</span>
             </div>
 
             <h1 id="intro-headline" className="intro-overlay__title">

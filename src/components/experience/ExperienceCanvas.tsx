@@ -81,6 +81,7 @@ export default function ExperienceCanvas({
 }: ExperienceCanvasProps) {
   const [webglSupported] = useState(() => isWebGLAvailable());
   const [isPageVisible, setIsPageVisible] = useState(true);
+  const [assetsLoaded, setAssetsLoaded] = useState(false);
 
   useEffect(() => {
     if (!webglSupported) {
@@ -129,7 +130,7 @@ export default function ExperienceCanvas({
             );
           }}
         >
-          <AssetProgressBridge onLoadProgress={onLoadProgress} />
+          {!assetsLoaded && <AssetProgressBridge onLoadProgress={onLoadProgress} />}
           <Suspense fallback={null}>
             <AdaptiveQuality maxDpr={dprRange[1]} />
             <JourneyController
@@ -140,7 +141,10 @@ export default function ExperienceCanvas({
               isMobile={isMobile}
               reducedMotion={reducedMotion}
               onLoadProgress={onLoadProgress}
-              onFirstFrameRendered={onSceneReady}
+              onFirstFrameRendered={() => {
+                setAssetsLoaded(true);
+                onSceneReady();
+              }}
             />
           </Suspense>
         </Canvas>

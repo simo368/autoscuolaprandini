@@ -184,9 +184,9 @@ export default function Road({ curve, isMobile = false }: RoadProps) {
 
     const asphaltMat = new THREE.MeshStandardMaterial({
       map: tex.map,
-      roughnessMap: tex.roughnessMap,
-      bumpMap: tex.bumpMap,
-      bumpScale: 0.025,
+      roughnessMap: isMobile ? null : tex.roughnessMap,
+      bumpMap: isMobile ? null : tex.bumpMap,
+      bumpScale: isMobile ? 0 : 0.025,
       roughness: 0.82,
       metalness: 0.06,
       envMapIntensity: 0.75,

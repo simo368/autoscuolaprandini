@@ -180,13 +180,13 @@ export const stopCameraPresets: Record<JourneyStopId | "driving", CameraPreset> 
     fovMobile: 53,
   },
   patenti: {
-    offsetDesktop: [-5.6, 3.0, 7.2],
+    offsetDesktop: [-4.4, 2.35, 6.2],
     // Inquadra la Captur + pedane Scooter AM e Moto A nella metà superiore sopra il bottom sheet
-    offsetMobile: [-1.1, 4.1, 9.8],
-    lookDesktop: [2.7, 0.9, -0.4],
-    lookMobile: [1.5, 0.05, 0.4],
-    fovDesktop: 40,
-    fovMobile: 52,
+    offsetMobile: [0.6, 2.55, 6.4],
+    lookDesktop: [1.5, 0.78, 0.2],
+    lookMobile: [1.1, -0.45, 0.55],
+    fovDesktop: 39,
+    fovMobile: 48,
   },
   rinnovo: {
     offsetDesktop: [-4.9, 2.25, -5.4],
